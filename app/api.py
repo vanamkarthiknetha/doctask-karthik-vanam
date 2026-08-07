@@ -49,6 +49,10 @@ class DecisionIn(BaseModel):
     feedback: str | None = None
 
 
+class RulesIn(BaseModel):
+    rules_yaml: str
+
+
 @app.get("/health")
 def health():
     provider = get_provider()
@@ -90,6 +94,30 @@ def list_documents(pile_id: str):
 async def upload_document(pile_id: str, file: UploadFile):
     data = await file.read()
     return _wrap(service.add_document_bytes, pile_id, file.filename, data)
+
+
+@app.get("/piles/{pile_id}/rules")
+def get_rules(pile_id: str):
+    """The playbook this pile is examined against right now: its own
+    uploaded rules if it has any, else the system default (source tells
+    you which)."""
+    return _wrap(service.get_pile_rules, pile_id)
+
+
+@app.put("/piles/{pile_id}/rules")
+def put_rules(pile_id: str, body: RulesIn):
+    """Hand this pile the rules it should be examined against: a staged
+    YAML playbook (compliance checklist / contract playbook / style guide).
+    Validated against the known check types before being stored — a 422
+    names exactly what's wrong rather than silently accepting a rule the
+    engine can't enforce."""
+    return _wrap(service.set_pile_rules, pile_id, body.rules_yaml)
+
+
+@app.delete("/piles/{pile_id}/rules")
+def delete_rules(pile_id: str):
+    """Revert this pile to the system default playbook."""
+    return _wrap(service.clear_pile_rules, pile_id)
 
 
 @app.post("/piles/{pile_id}/runs")

@@ -16,7 +16,7 @@ from datetime import date
 from . import config, db, register
 from .llm.boundary import Classification, get_provider
 from .reconcile import normalize_key, reconcile
-from .rules_engine import load_playbook, run_rules
+from .rules_engine import resolve_playbook, run_rules
 
 # Deterministic injection heuristics, applied in ADDITION to the model's
 # instruction_like signal: either one flags the document.
@@ -367,7 +367,9 @@ def examine_node(state: dict) -> dict:
     for f in facts:
         facts_by_doc.setdefault(f["doc_id"], []).append(f)
     claims = [c for p in (state.get("proposals") or []) for c in p["claims"]]
-    playbook = load_playbook(config.RULES_FILE)
+    pile_row = db.one("SELECT rules_yaml FROM piles WHERE id=%s", (pile_id,))
+    playbook, rules_source = resolve_playbook(
+        pile_row["rules_yaml"] if pile_row else None, config.RULES_FILE)
     findings, report = run_rules(playbook, {
         "effective": r["effective"],
         "facts_by_doc": facts_by_doc,
@@ -386,5 +388,6 @@ def examine_node(state: dict) -> dict:
               "violations" if any(x["outcome"] == "violations" for x in rows)
               else "clean", {"rules": rows})
     event(run_id, "examine", "completed",
-          {"new_findings": inserted, "rules_evaluated": len(report)})
+          {"new_findings": inserted, "rules_evaluated": len(report),
+           "rules_source": rules_source})
     return {}

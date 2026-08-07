@@ -4,8 +4,12 @@
 CREATE TABLE IF NOT EXISTS piles (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name        TEXT NOT NULL UNIQUE,
+    rules_yaml  TEXT,  -- pile-specific playbook the user handed us; NULL = system default
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Idempotent for pre-existing databases (docker volumes persist across runs);
+-- CREATE TABLE IF NOT EXISTS above does not add columns to an existing table.
+ALTER TABLE piles ADD COLUMN IF NOT EXISTS rules_yaml TEXT;
 
 CREATE TABLE IF NOT EXISTS documents (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),

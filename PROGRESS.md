@@ -101,6 +101,49 @@ Format: id · decision/assumption · why · how to revisit.
   (`./corpus/incoming`) so Explorer drag-and-drop feeds the watcher.
   Ingestion via REST/watcher/MCP is unchanged — the UI is a client of the
   same service layer, not a new path.
+- **P20 · Per-pile rules upload (2026-08-07) — closing a real gap, not a
+  cosmetic one.** TASK.md and the original plan both said "user-supplied
+  rules," but the rules engine only ever read one file
+  (`rules/playbook.yaml`) from a fixed path — an engineer-authored config,
+  not something a user (or their agent) could hand the system per pile. The
+  brief's movement 2 line is explicit: "the user hands it the rules they
+  care about." Fixed at the schema level: `piles.rules_yaml` (nullable —
+  NULL means "use the system default"), `GET/PUT/DELETE /piles/{id}/rules`
+  (+ matching MCP tools + a UI Rules tab), validated against the engine's
+  own check registry before being stored so an unenforceable rule is
+  refused at upload time with the specific reason, never silently dropped
+  at run time. `examine_node` resolves the active playbook per run and logs
+  which source it used. Deliberately NOT built: deriving rules from a
+  freeform prose document (upload a PDF style guide, let an LLM infer
+  checks) — that trades a bounded, auditable input for one where a wrong
+  inferred rule is indistinguishable from a right one, which is precisely
+  what behavior 5 (never bluffs) rules out. Proof it actually changes
+  pipeline behavior, not just what the endpoint reports back:
+  `tests/test_pile_rules.py::test_pile_rules_change_what_a_real_run_flags`
+  — same corpus, two piles, two active playbooks, two different finding
+  sets, and the run's own audit trail says which playbook produced which.
+- **P21 · Rules tab: raw YAML textarea replaced with a guided builder
+  (2026-08-07).** P20 shipped `PUT /piles/{id}/rules`, satisfying the letter
+  of "the user hands it the rules" — but the first UI for it was a bare
+  YAML textarea, which quietly re-imposed an engineer-only bar on exactly
+  the audience the brief names (a compliance officer, a contract manager).
+  Inconsistent with the rest of this UI, which never assumes technical
+  fluency (`RULE_TITLES`, `KEY_LABELS`, `describeEvent`, the glossary
+  panel). Fixed with a **🧩 Builder** view as the default: a plain-English
+  form (check type → fields → severity → description) that renders rules as
+  removable cards; the assembled YAML stays visible read-only underneath
+  (the existing `raw-toggle`/"technical detail" disclosure pattern already
+  used for register content and stage-event JSON), so nothing is hidden,
+  it's just never required reading. A **📝 Raw YAML** toggle keeps the
+  original textarea for anyone who wants to hand-edit or paste a full
+  playbook. `js-yaml` (new UI dependency — `yaml.dump`/`yaml.load`) keeps
+  the two views in sync in both directions; switching back to Builder mode
+  after a raw-YAML edit that fails to parse shows the parse error inline
+  and stays in YAML mode rather than silently discarding the edit. The
+  builder is closed-form by construction: it only ever emits the 7 checks
+  `app/rules_engine.py` implements (`CHECK_DEFS` in `App.jsx` mirrors
+  `CHECKS` in `rules_engine.py`), so it cannot promise a rule the engine
+  can't enforce — same trust boundary as P20's upload-time validation.
 - **P14 · Entity canonicalization (found by the first LIVE run, not the
   mock).** Gemini spelled the same client three ways across documents
   ("Halcyon" / "Halcyon Support Desk Ltd" / …), fragmenting entity-keyed

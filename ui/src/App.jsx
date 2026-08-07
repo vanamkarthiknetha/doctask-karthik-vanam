@@ -1,11 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import * as yaml from "js-yaml";
 
-// GET when no body; POST json when body given (pass {} for empty POST).
-const api = async (path, body) => {
-  const r = await fetch(path, body && {
-    method: "POST",
+// GET when no body/method; POST json when body given (pass {} for empty
+// POST); pass an explicit method to PUT/DELETE (body optional for DELETE).
+const api = async (path, body, method) => {
+  const m = method || (body ? "POST" : "GET");
+  const r = await fetch(path, m === "GET" ? undefined : {
+    method: m,
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (!r.ok) {
     let detail = r.statusText;
@@ -56,6 +59,86 @@ const RULE_TITLES = {
   "unverifiable-extraction": "A claimed fact couldn't be confirmed in the source",
 };
 const ruleTitle = (id) => RULE_TITLES[id] || (id || "").replace(/^R\d+-/, "").replace(/-/g, " ");
+
+// ------------------------------------------------------------- rule builder
+// Lets a non-technical reviewer author playbook rules through a plain-English
+// form instead of hand-writing YAML. The generated YAML (visible read-only
+// below the builder) is exactly what gets saved — nothing is hidden, it's
+// just never REQUIRED reading. Bounded to the checks app/rules_engine.py
+// actually implements: adding a check type here without adding it there
+// would let the builder promise something the engine can't enforce.
+const KNOWN_FACT_KEYS = Object.keys(KEY_LABELS);
+const CHECK_DEFS = {
+  fact_max: {
+    label: "Numeric ceiling", fields: ["key", "max"], defaultKey: "auto_renewal_months",
+    hint: "A value must never go above a maximum.",
+    describe: (r) => `${humanizeKey(r.key)} must not exceed ${r.max ?? "…"}.`,
+  },
+  fact_min: {
+    label: "Numeric floor", fields: ["key", "min"], defaultKey: "sla_uptime",
+    hint: "A value must never fall below a minimum.",
+    describe: (r) => `${humanizeKey(r.key)} must be at least ${r.min ?? "…"}.`,
+  },
+  net_terms_max: {
+    label: "Payment terms limit", fields: ["key", "max_days"], defaultKey: "payment_terms",
+    hint: "Payment terms (e.g. net-30) must not be looser than a day count.",
+    describe: (r) => `${humanizeKey(r.key)} must be net-${r.max_days ?? "…"} or stricter.`,
+  },
+  invoice_arithmetic: {
+    label: "Invoice math check", fields: ["tolerance"],
+    hint: "Invoice totals must equal billed minutes × the stated rate.",
+    describe: (r) => `Invoice totals must match minutes × rate (tolerance ${r.tolerance ?? 0.01}).`,
+  },
+  minimum_commitment: {
+    label: "Minimum billing commitment", fields: [],
+    hint: "Billed minutes must meet the effective monthly minimum.",
+    describe: () => "Billed minutes must meet the effective monthly commitment.",
+  },
+  claims_cited: {
+    label: "Every report claim must cite evidence", fields: [],
+    hint: "A report claim with no supporting fact is flagged.",
+    describe: () => "Every report claim must cite at least one verified fact.",
+  },
+  injection_flag: {
+    label: "Flag documents that try to instruct the system", fields: [],
+    hint: "A source document containing instructions aimed at the system is reported, never obeyed.",
+    describe: () => "Source documents must not attempt to instruct the analysis system.",
+  },
+};
+const FIELD_LABELS = { key: "Applies to", max: "Maximum", min: "Minimum",
+                       max_days: "Max days (net-__)", tolerance: "Tolerance ($)" };
+
+const NEW_RULE_DEFAULTS = { check: "fact_max", key: "auto_renewal_months", max: "",
+                            min: "", max_days: "", tolerance: "", severity: "high",
+                            description: "" };
+
+function slugId(text) {
+  const base = (text || "rule").toLowerCase().trim()
+    .replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 40) || "rule";
+  return `${base}-${Date.now().toString(36).slice(-4)}`;
+}
+
+// Flat {stages:[{name, rules:[...]}]} <-> a flat list of rules tagged with
+// which stage they came from — the builder shows one flat list of cards;
+// stage membership is preserved only so a Save round-trips it unchanged.
+function playbookToRuleList(playbook) {
+  if (!playbook || !Array.isArray(playbook.stages)) return [];
+  return playbook.stages.flatMap((s) =>
+    (s.rules || []).map((r) => ({ ...r, _stage: s.name })));
+}
+function ruleListToPlaybook(list) {
+  const byStage = new Map();
+  for (const r of list) {
+    const { _stage, ...rule } = r;
+    const name = _stage || "your-rules";
+    if (!byStage.has(name)) byStage.set(name, []);
+    byStage.get(name).push(rule);
+  }
+  return { stages: [...byStage.entries()].map(([name, rules]) => ({ name, rules })) };
+}
+function dumpYaml(playbook) {
+  return yaml.dump(playbook, { noRefs: true, lineWidth: -1 });
+}
 
 const REASON_LABELS = {
   "full analysis": "a fresh analysis of every document",
@@ -160,7 +243,9 @@ function describeEvent(e) {
     case "render:failed-nonfatal":
       return "The styled export failed, but the report itself is unaffected.";
     case "examine:completed":
-      return `Checked ${d.rules_evaluated} playbook rule(s) — ${d.new_findings} new issue(s).`;
+      return `Checked ${d.rules_evaluated} playbook rule(s)` +
+        (d.rules_source === "pile" ? " (your rules)" : " (system default)") +
+        ` — ${d.new_findings} new issue(s).`;
     default:
       if (e.stage.startsWith("examine:")) {
         const group = e.stage.split(":")[1]?.replace(/-/g, " ");
@@ -327,6 +412,26 @@ function ItemCard({ item, onDecide }) {
   );
 }
 
+function DraftRuleCard({ rule, onDelete }) {
+  const def = CHECK_DEFS[rule.check];
+  return (
+    <div className="card item-card">
+      <div className="card-head">
+        <span className="item-icon" aria-hidden="true">{SEV_ICON[rule.severity] || "🔍"}</span>
+        <div className="item-title">
+          <b>{RULE_TITLES[rule.id] || rule.description}</b>
+          <span className="dim">
+            {SEV_LABEL[rule.severity] || rule.severity} · {rule._stage}
+          </span>
+        </div>
+        <button className="ghost" style={{ marginLeft: "auto" }} title="Remove this rule"
+                onClick={() => onDelete(rule._stage, rule.id)}>✕</button>
+      </div>
+      <p className="dim">{def ? def.describe(rule) : `unrecognized check: ${rule.check}`}</p>
+    </div>
+  );
+}
+
 function Activity({ events }) {
   return (
     <div className="activity">
@@ -355,14 +460,15 @@ function Activity({ events }) {
   );
 }
 
-const TABS = ["documents", "review", "timeline", "register", "findings",
+const TABS = ["documents", "rules", "review", "timeline", "register", "findings",
               "provenance", "costs"];
 const TAB_LABELS = {
-  documents: "Documents", review: "Review", timeline: "Activity",
+  documents: "Documents", rules: "Rules", review: "Review", timeline: "Activity",
   register: "Report", findings: "Issues", provenance: "History", costs: "Cost",
 };
 const TAB_CAPTIONS = {
   documents: "Every source file the analyst has read so far.",
+  rules: "Hand this pile the rules it should be examined against — your own playbook, not a shared default.",
   review: "Approve or reject each proposed change — nothing is final until you say so.",
   timeline: "A play-by-play of what the analyst just did, in order.",
   register: "The living report. Every figure links back to the exact document it came from.",
@@ -383,6 +489,14 @@ export default function App() {
   const [audit, setAudit] = useState(null);
   const [findings, setFindings] = useState([]);
   const [costs, setCosts] = useState(null);
+  const [rules, setRules] = useState(null);
+  const [rulesDraft, setRulesDraft] = useState("");           // the YAML text that Save submits
+  const [rulesDraftObj, setRulesDraftObj] = useState(null);   // { stages: [...] } that backs the builder
+  const [rulesParseError, setRulesParseError] = useState(""); // set when raw-YAML edits can't be shown as cards
+  const [rulesMode, setRulesMode] = useState("builder");      // "builder" | "yaml"
+  const [rulesDirty, setRulesDirty] = useState(false);
+  const [rulesBusy, setRulesBusy] = useState(false);
+  const [newRule, setNewRule] = useState(NEW_RULE_DEFAULTS);
   const [health, setHealth] = useState(null);
   const [sampleSets, setSampleSets] = useState([]);
   const [tab, setTab] = useState(() => {
@@ -440,16 +554,25 @@ export default function App() {
       } else {
         setItems([]);
       }
-      const [reg, aud, fnd, cst] = await Promise.all([
+      const [reg, aud, fnd, cst, rul] = await Promise.all([
         api(`/piles/${pid}/register`), api(`/piles/${pid}/audit`),
         api(`/piles/${pid}/findings`), api(`/piles/${pid}/costs`),
+        api(`/piles/${pid}/rules`),
       ]);
       setRegister(reg); setAudit(aud); setFindings(fnd); setCosts(cst);
+      setRules(rul);
+      if (!rulesDirty) {
+        setRulesDraft(rul.rules_yaml);
+        try {
+          setRulesDraftObj(yaml.load(rul.rules_yaml));
+          setRulesParseError("");
+        } catch (e) { setRulesParseError(String(e.message || e)); }
+      }
       setError("");
     } catch (e) {
       setError(String(e.message || e));
     }
-  }, [pileId, runSel, sampleSets.length]);
+  }, [pileId, runSel, sampleSets.length, rulesDirty]);
 
   useEffect(() => {
     refresh();
@@ -469,6 +592,7 @@ export default function App() {
       const p = await api("/piles", { name });
       setPileId(p.id);
       setRunSel({ id: null, manual: false });
+      setRulesDirty(false);
       setNewPile(""); setCreating(false);
       setTab("documents");
       say(`Pile "${p.name}" ready — add documents next.`);
@@ -536,6 +660,74 @@ export default function App() {
     } catch (e) { setError(String(e.message || e)); }
   };
 
+  const saveRules = async () => {
+    setRulesBusy(true);
+    try {
+      const r = await api(`/piles/${pileId}/rules`, { rules_yaml: rulesDraft }, "PUT");
+      setRulesDirty(false);
+      say(`Rules saved — ${r.rule_count} rule(s) across ${r.stages.length} stage(s). The next run uses them.`);
+      refresh();
+    } catch (e) { setError(String(e.message || e)); }
+    setRulesBusy(false);
+  };
+
+  const resetRules = async () => {
+    setRulesBusy(true);
+    try {
+      await api(`/piles/${pileId}/rules`, undefined, "DELETE");
+      setRulesDirty(false);
+      say("Reverted to the system default playbook.");
+      refresh();
+    } catch (e) { setError(String(e.message || e)); }
+    setRulesBusy(false);
+  };
+
+  // ---------------------------------------------------------- rule builder
+  const applyDraftObj = (next) => {
+    setRulesDraftObj(next);
+    setRulesDraft(dumpYaml(next));
+    setRulesDirty(true);
+  };
+
+  const addRule = () => {
+    const def = CHECK_DEFS[newRule.check];
+    const rule = { id: slugId(newRule.description), severity: newRule.severity,
+                   description: newRule.description.trim() || def.describe(newRule),
+                   check: newRule.check };
+    for (const f of def.fields) {
+      const raw = newRule[f];
+      if (f === "tolerance" && !raw) continue;   // optional — the engine defaults it
+      rule[f] = (f === "key") ? raw : Number(raw);
+    }
+    const list = [...playbookToRuleList(rulesDraftObj), { ...rule, _stage: "your-rules" }];
+    applyDraftObj(ruleListToPlaybook(list));
+    setNewRule({ ...NEW_RULE_DEFAULTS });
+    say("Rule added — click Save to make it active.");
+  };
+
+  const deleteRule = (stageName, ruleId) => {
+    const list = playbookToRuleList(rulesDraftObj)
+      .filter((r) => !(r._stage === stageName && r.id === ruleId));
+    applyDraftObj(ruleListToPlaybook(list));
+  };
+
+  const ruleFieldReady = () => {
+    const def = CHECK_DEFS[newRule.check];
+    return def.fields.every((f) => f === "tolerance" || String(newRule[f] ?? "").trim() !== "");
+  };
+
+  const switchToYamlMode = () => setRulesMode("yaml");
+  const switchToBuilderMode = () => {
+    try {
+      const parsed = yaml.load(rulesDraft);
+      setRulesDraftObj(parsed);
+      setRulesParseError("");
+      setRulesMode("builder");
+    } catch (e) {
+      setRulesParseError(String(e.message || e));   // stay in YAML mode until it's fixable
+    }
+  };
+
   const copyRegister = async () => {
     try {
       await navigator.clipboard.writeText(register.markdown);
@@ -600,6 +792,7 @@ export default function App() {
                       onChange={(e) => {
                         setPileId(e.target.value);
                         setRunSel({ id: null, manual: false });
+                        setRulesDirty(false);
                       }}>
                 {(piles || []).map((p) =>
                   <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -716,6 +909,142 @@ export default function App() {
               Watched folder: files dropped into <code>corpus/incoming/{pile.name}/</code>{" "}
               are ingested automatically as focused update runs — no clicks needed.
             </p>
+          )}
+        </section>
+      )}
+
+      {/* ------------------------------------------------ rules tab */}
+      {tab === "rules" && (
+        <section>
+          {rules && (
+            <div className="card">
+              <div className="card-head">
+                <b>Active playbook</b>
+                <span className={`chip ${rules.source === "pile" ? "live" : "idle"}`}>
+                  <i />{rules.source === "pile" ? "your rules" : "system default"}
+                </span>
+                <span className="dim">
+                  {rules.rule_count} rule(s) across {rules.stages.length} stage(s)
+                </span>
+                <span className="rules-mode-toggle" style={{ marginLeft: "auto" }}>
+                  <button className={rulesMode === "builder" ? "primary" : "ghost"}
+                          onClick={switchToBuilderMode}>🧩 Builder</button>
+                  <button className={rulesMode === "yaml" ? "primary" : "ghost"}
+                          onClick={switchToYamlMode}>📝 Raw YAML</button>
+                </span>
+              </div>
+              <p className="dim">
+                Hand this pile a compliance checklist, a contract playbook,
+                or a style guide — as rules — and every run against it is
+                examined against YOUR rules, not a shared default. Build
+                rules below with plain-English fields; the YAML underneath
+                (always visible, never required reading) is exactly what
+                gets saved. Each rule names one of the checks the engine
+                actually implements — an unknown check is refused with the
+                specific reason, not silently ignored.
+              </p>
+
+              {rulesMode === "builder" ? (
+                <>
+                  <div className="rule-cards">
+                    {playbookToRuleList(rulesDraftObj).map((r) => (
+                      <DraftRuleCard key={`${r._stage}:${r.id}`} rule={r} onDelete={deleteRule} />
+                    ))}
+                    {playbookToRuleList(rulesDraftObj).length === 0 && (
+                      <p className="dim">No rules yet — add one below.</p>
+                    )}
+                  </div>
+
+                  <div className="card rule-add-form">
+                    <b>Add a rule</b>
+                    <div className="rule-add-grid">
+                      <label>
+                        <span className="dim">Check type</span>
+                        <select value={newRule.check}
+                                onChange={(e) => {
+                                  const check = e.target.value;
+                                  setNewRule({ ...NEW_RULE_DEFAULTS, check,
+                                    key: CHECK_DEFS[check].defaultKey || "" });
+                                }}>
+                          {Object.entries(CHECK_DEFS).map(([k, d]) =>
+                            <option key={k} value={k}>{d.label}</option>)}
+                        </select>
+                      </label>
+                      {CHECK_DEFS[newRule.check].fields.includes("key") && (
+                        <label>
+                          <span className="dim">{FIELD_LABELS.key}</span>
+                          <select value={newRule.key}
+                                  onChange={(e) => setNewRule({ ...newRule, key: e.target.value })}>
+                            {KNOWN_FACT_KEYS.map((k) =>
+                              <option key={k} value={k}>{humanizeKey(k)}</option>)}
+                          </select>
+                        </label>
+                      )}
+                      {["max", "min", "max_days", "tolerance"]
+                        .filter((f) => CHECK_DEFS[newRule.check].fields.includes(f))
+                        .map((f) => (
+                          <label key={f}>
+                            <span className="dim">{FIELD_LABELS[f]}</span>
+                            <input type="number" step={f === "tolerance" ? "0.01" : "1"}
+                                   placeholder={f === "tolerance" ? "0.01 (optional)" : ""}
+                                   value={newRule[f]}
+                                   onChange={(e) => setNewRule({ ...newRule, [f]: e.target.value })} />
+                          </label>
+                        ))}
+                      <label>
+                        <span className="dim">Severity</span>
+                        <select value={newRule.severity}
+                                onChange={(e) => setNewRule({ ...newRule, severity: e.target.value })}>
+                          <option value="high">High</option>
+                          <option value="medium">Medium</option>
+                          <option value="low">Low</option>
+                        </select>
+                      </label>
+                      <label className="rule-add-desc">
+                        <span className="dim">Description (optional — auto-filled if left blank)</span>
+                        <input value={newRule.description}
+                               placeholder={CHECK_DEFS[newRule.check].describe(newRule)}
+                               onChange={(e) => setNewRule({ ...newRule, description: e.target.value })} />
+                      </label>
+                    </div>
+                    <p className="dim" style={{ margin: "4px 0" }}>
+                      {CHECK_DEFS[newRule.check].hint}
+                    </p>
+                    <button className="primary" disabled={!ruleFieldReady()} onClick={addRule}>
+                      + Add rule
+                    </button>
+                  </div>
+
+                  <details className="raw-toggle">
+                    <summary>view generated YAML (read-only)</summary>
+                    <pre className="md small">{rulesDraft}</pre>
+                  </details>
+                </>
+              ) : (
+                <>
+                  {rulesParseError && (
+                    <p className="error">
+                      Couldn't read this as rule cards: {rulesParseError}. Fix
+                      the YAML below, or your edits still save as-is.
+                    </p>
+                  )}
+                  <textarea className="rules-editor mono" rows={18} spellCheck={false}
+                            value={rulesDraft}
+                            onChange={(e) => { setRulesDraft(e.target.value); setRulesDirty(true); }} />
+                </>
+              )}
+
+              <div className="actions">
+                <button className="primary" disabled={rulesBusy || !rulesDirty}
+                        onClick={saveRules}>
+                  💾 Save rules for this pile
+                </button>
+                <button className="ghost" disabled={rulesBusy || rules.source !== "pile"}
+                        onClick={resetRules}>
+                  ↺ Reset to system default
+                </button>
+              </div>
+            </div>
           )}
         </section>
       )}
@@ -932,6 +1261,7 @@ function Header({ health }) {
           <div className="glossary-panel">
             <div><b>Pile</b> — a set of related documents you're analyzing together.</div>
             <div><b>Run</b> — one pass of the analyst reading your documents and proposing changes.</div>
+            <div><b>Rules / playbook</b> — the checklist this pile is examined against; yours if you've set one, the system default otherwise.</div>
             <div><b>Report</b> — the living register of obligations the analyst keeps up to date for you.</div>
             <div><b>Issue / finding</b> — something in your documents that breaks one of your rules.</div>
             <div><b>Disagreement / conflict</b> — two documents stating different values for the same thing.</div>

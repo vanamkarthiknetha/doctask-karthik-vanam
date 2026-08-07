@@ -31,8 +31,9 @@ docker compose up --build
 
 Then open **http://localhost:8000/ui** and drive the whole loop from the
 browser: **＋ New pile → upload documents** (drag-and-drop, or one click to
-load the bundled sample corpus) **→ ▶ Run analysis → review each proposed
-item → resume**. The pipeline stepper shows where the run is at any moment,
+load the bundled sample corpus) **→ optionally hand it your own rules on the
+Rules tab → ▶ Run analysis → review each proposed item → resume**. The
+pipeline stepper shows where the run is at any moment,
 the header shows which LLM backend is live, and tabs are deep-linkable
 (`/ui#review`, `/ui#register`, …). Works with **zero API keys**: the LLM
 boundary falls back to a deterministic mock that replays recorded
@@ -68,6 +69,49 @@ curl -X POST ":8000/runs/<run>/resume?wait=true"
 curl :8000/piles/<pile>/register
 ```
 
+### Your own rules, per pile (examine)
+
+Every pile starts on the bundled default playbook (`rules/playbook.yaml`).
+Hand a pile its own — a compliance checklist, a contract playbook, a style
+guide, expressed as staged YAML rules — and every run against that pile is
+examined against it instead, until you reset it:
+
+```bash
+curl :8000/piles/<pile>/rules                                   # what's active now, and its source
+python -c "import json,sys; print(json.dumps({'rules_yaml': open('my-playbook.yaml').read()}))" \
+  | curl -X PUT :8000/piles/<pile>/rules -H 'content-type: application/json' -d @-
+curl -X DELETE :8000/piles/<pile>/rules                          # revert to the system default
+```
+
+Each rule must name one of the checks `app/rules_engine.py` actually
+implements (`fact_max`, `fact_min`, `net_terms_max`, `invoice_arithmetic`,
+`minimum_commitment`, `claims_cited`, `injection_flag`) — an unknown check
+is rejected with the specific reason at upload time, not silently skipped
+at run time. The examine stage records which source it used (`pile` or
+`default`) in that run's stage events, so the audit trail shows which
+ruleset actually produced a given finding. Proof this genuinely changes
+pipeline behavior, not just what the endpoint echoes back:
+`tests/test_pile_rules.py::test_pile_rules_change_what_a_real_run_flags` —
+the same corpus, run under two different active playbooks, produces two
+different sets of findings.
+
+**The UI's Rules tab doesn't assume YAML literacy.** The rest of this UI
+translates every technical detail into plain language for a reviewer who
+isn't an engineer (`RULE_TITLES`, `KEY_LABELS`, the glossary panel) — a raw
+YAML textarea as the *only* way to author a rule would break that promise
+for exactly the person the brief describes ("the user hands it the rules
+they care about"). So the default **🧩 Builder** view is a plain-English
+form: pick a check type ("Numeric ceiling", "Payment terms limit", …), fill
+in blanks, and rules render as readable cards you can remove with one
+click. The exact YAML that Save will submit stays visible underneath in a
+read-only `<details>` (nothing hidden, just never required reading) — and a
+**📝 Raw YAML** toggle is still there for anyone who wants to paste or hand-
+edit a full playbook directly (`js-yaml` in the browser keeps the two views
+in sync both ways). One disclosed limitation: `js-yaml`'s serializer does
+not preserve comments, so adding or removing a rule through the Builder
+after hand-editing comments into the Raw YAML view will drop them — the
+rules themselves are never lost, only inline commentary.
+
 ### The watched location (stay alive)
 
 Drop a file into `corpus/incoming/<pile-name>/` — plain Explorer/Finder
@@ -90,11 +134,13 @@ python -m venv .venv && .venv/Scripts/pip install -r requirements.txt   # once
 .venv/Scripts/python -m pytest tests -q
 ```
 
-27 tests, ~40s. They test the claims, not the mocks: a hard process kill
+33 tests, ~40s. They test the claims, not the mocks: a hard process kill
 mid-run with checkpoint resume (counting real boundary calls to prove no
 rework), per-item gate isolation, a document that gives orders, unverifiable
 quotes being dropped and escalated, two piles running concurrently, and the
-byte-identity proof for focused updates.
+byte-identity proof for focused updates — plus (`test_pile_rules.py`) a pile's
+uploaded playbook actually changing what a real run flags, not just what the
+rules endpoint echoes back.
 
 ### MCP server (machine-drivable, approval included)
 
@@ -102,11 +148,14 @@ byte-identity proof for focused updates.
 python -m app.mcp_server     # stdio transport
 ```
 
-13 tools: `create_pile, list_piles, add_document, run_analysis, get_run,
-list_pending, approve_item, reject_item, resume_run, get_register,
-get_audit_log, get_findings, get_costs`. Client config snippet is at the top
-of `app/mcp_server.py`. Approval is an explicit operation — an agent (or a
-script, or the React UI) drives the identical flow.
+16 tools: `create_pile, list_piles, add_document, get_pile_rules,
+set_pile_rules, clear_pile_rules, run_analysis, get_run, list_pending,
+approve_item, reject_item, resume_run, get_register, get_audit_log,
+get_findings, get_costs`. Client config snippet is at the top of
+`app/mcp_server.py`. Approval is an explicit operation — an agent (or a
+script, or the React UI) drives the identical flow, and that now includes
+handing a pile its rules: an agent can `set_pile_rules` before `run_analysis`
+without a human ever opening the UI.
 
 ---
 
@@ -138,10 +187,17 @@ script, or the React UI) drives the identical flow.
   document (contract/amendment) wins cleanly (supersession, recorded); same-date
   disagreements and invoices restating different values are **conflicts** —
   surfaced to a human, never silently resolved.
-- **Rules are data** (`rules/playbook.yaml`): three staged groups (terms →
-  billing → register integrity) over seven rules. Every rule reports an
-  outcome even when clean, so "no findings" on a clean corpus is a
-  demonstrated result (`tests/test_pipeline.py::test_clean_corpus_honest_no_findings`).
+- **Rules are data, and the user hands them over per pile.** Every pile
+  starts on the bundled default (`rules/playbook.yaml`: three staged groups,
+  seven rules), but `PUT /piles/{id}/rules` (+ MCP `set_pile_rules`, + the
+  UI's Rules tab) lets a pile carry its own — a compliance checklist, a
+  contract playbook, a style guide — validated against the checks the engine
+  actually implements before it's stored (unknown check → 422 naming it, not
+  a silent no-op). Every rule reports an outcome even when clean, so "no
+  findings" on a clean corpus is a demonstrated result
+  (`tests/test_pipeline.py::test_clean_corpus_honest_no_findings`), and which
+  playbook a run used (`pile` or `default`) is itself part of that run's
+  audit trail.
 - **The human gate is the graph's interrupt**: the run pauses at `propose`
   with one reviewable item per section update / conflict / finding. Items are
   decided one at a time; rejecting one touches nothing else; resume is
@@ -198,6 +254,16 @@ anchors — the corpus cannot drift from the fixtures.
   exported docx/pdf.
 - **One active run per pile** (409 otherwise): updates queue in the watched
   folder rather than interleaving. Two *piles* run concurrently just fine.
+- **Rules upload is structured YAML, not freeform prose.** A pile can be
+  handed a staged playbook (see above), but this system will not accept an
+  arbitrary document — a PDF style guide, a prose compliance memo — and have
+  an LLM invent structured checks from it. That's a materially different,
+  much riskier feature: an interpreted rule the model got wrong would look
+  identical to one it got right, and behavior 5 ("never bluffs") is exactly
+  the guarantee that would break. If a rule matters, it must be expressed
+  as one of the checks this engine actually implements, with explicit
+  parameters — same trust boundary the rest of the system already holds
+  extraction to.
 
 ## Repo map
 

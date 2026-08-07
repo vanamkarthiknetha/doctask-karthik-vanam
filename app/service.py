@@ -7,6 +7,7 @@ import uuid
 from pathlib import Path
 
 from . import config, db, graph, ingest
+from .rules_engine import load_playbook, parse_playbook_yaml
 
 
 class ServiceError(Exception):
@@ -37,6 +38,52 @@ def get_pile(pile_id: str) -> dict:
     if not p:
         raise ServiceError(404, "pile not found")
     return _pile_out(p)
+
+
+def _rules_summary(playbook: dict, source: str) -> dict:
+    stages = playbook.get("stages", [])
+    return {
+        "source": source,
+        "stages": [s["name"] for s in stages],
+        "rule_count": sum(len(s.get("rules", [])) for s in stages),
+    }
+
+
+def get_pile_rules(pile_id: str) -> dict:
+    """The playbook this pile is actually examined against right now: its
+    own uploaded rules if it has any, else the system default."""
+    p = db.one("SELECT rules_yaml FROM piles WHERE id=%s", (pile_id,))
+    if p is None:
+        raise ServiceError(404, "pile not found")
+    if p["rules_yaml"]:
+        return _rules_summary(parse_playbook_yaml(p["rules_yaml"]), "pile") | {
+            "rules_yaml": p["rules_yaml"],
+        }
+    default = load_playbook(config.RULES_FILE)
+    return _rules_summary(default, "default") | {
+        "rules_yaml": Path(config.RULES_FILE).read_text(encoding="utf-8"),
+    }
+
+
+def set_pile_rules(pile_id: str, rules_yaml: str) -> dict:
+    """The user hands this pile the rules they care about: a compliance
+    checklist, a contract playbook, a style guide — as a staged YAML
+    playbook. Rejected with the specific reason if it is malformed or names
+    a check this engine cannot enforce; never stored half-understood."""
+    get_pile(pile_id)
+    try:
+        playbook = parse_playbook_yaml(rules_yaml)
+    except ValueError as exc:
+        raise ServiceError(422, str(exc))
+    db.q("UPDATE piles SET rules_yaml=%s WHERE id=%s", (rules_yaml, pile_id))
+    return _rules_summary(playbook, "pile")
+
+
+def clear_pile_rules(pile_id: str) -> dict:
+    """Revert this pile to the system default playbook."""
+    get_pile(pile_id)
+    db.q("UPDATE piles SET rules_yaml=NULL WHERE id=%s", (pile_id,))
+    return get_pile_rules(pile_id)
 
 
 def add_document_bytes(pile_id: str, filename: str, data: bytes) -> dict:

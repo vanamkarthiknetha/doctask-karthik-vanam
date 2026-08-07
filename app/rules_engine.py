@@ -184,6 +184,78 @@ def load_playbook(path: str) -> dict:
         return yaml.safe_load(f)
 
 
+def validate_playbook(playbook: dict) -> list[str]:
+    """Structural validation only: every rule must name one of the checks
+    this engine actually implements. A rule the engine cannot enforce is
+    rejected up front, not silently skipped at run time — the playbook is
+    user-supplied input, and an unenforceable rule is a bluff waiting to
+    happen (a compliance stage that quietly checks nothing)."""
+    errors: list[str] = []
+    if not isinstance(playbook, dict):
+        return ["playbook must be a YAML mapping with a top-level 'stages' key"]
+    stages = playbook.get("stages")
+    if not isinstance(stages, list) or not stages:
+        return ["playbook must have a non-empty top-level 'stages' list"]
+    seen_ids: set[str] = set()
+    for si, stage in enumerate(stages):
+        if not isinstance(stage, dict) or not stage.get("name"):
+            errors.append(f"stages[{si}] is missing a 'name'")
+            continue
+        rules = stage.get("rules")
+        if not isinstance(rules, list) or not rules:
+            errors.append(f"stage '{stage['name']}' has no rules")
+            continue
+        for ri, rule in enumerate(rules):
+            where = f"stage '{stage['name']}' rules[{ri}]"
+            if not isinstance(rule, dict):
+                errors.append(f"{where} is not a mapping")
+                continue
+            rid = rule.get("id")
+            if not rid:
+                errors.append(f"{where} is missing 'id'")
+            elif rid in seen_ids:
+                errors.append(f"duplicate rule id '{rid}'")
+            else:
+                seen_ids.add(rid)
+            label = rid or where
+            if not rule.get("severity"):
+                errors.append(f"rule '{label}' is missing 'severity'")
+            if not rule.get("description"):
+                errors.append(f"rule '{label}' is missing 'description'")
+            check = rule.get("check")
+            if not check:
+                errors.append(f"rule '{label}' is missing 'check'")
+            elif check not in CHECKS:
+                errors.append(
+                    f"rule '{label}' uses unknown check '{check}'; known "
+                    f"checks: {', '.join(sorted(CHECKS))}"
+                )
+    return errors
+
+
+def parse_playbook_yaml(text: str) -> dict:
+    """Parse + validate a user-supplied playbook. Raises ValueError with a
+    human-readable reason on either malformed YAML or a structurally invalid
+    playbook — callers turn this straight into an honest 422, not a 500."""
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        raise ValueError(f"invalid YAML: {exc}") from exc
+    errors = validate_playbook(data)
+    if errors:
+        raise ValueError("; ".join(errors))
+    return data
+
+
+def resolve_playbook(rules_yaml: str | None, default_path: str) -> tuple[dict, str]:
+    """The pile's own uploaded playbook if it has one, else the system
+    default. Callers record which source was used — the examine stage's
+    decision, not an implementation detail."""
+    if rules_yaml:
+        return yaml.safe_load(rules_yaml), "pile"
+    return load_playbook(default_path), "default"
+
+
 def run_rules(playbook: dict, ctx: dict) -> tuple[list[dict], list[dict]]:
     findings: list[dict] = []
     report: list[dict] = []

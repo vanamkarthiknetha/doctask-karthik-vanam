@@ -148,6 +148,22 @@ nav button.attention::after { content: ""; display: inline-block; width: 7px;
   border-radius: 8px; white-space: pre-wrap; font-family: Consolas, monospace;
   font-size: 12px; overflow-x: auto; }
 .md.small { font-size: 11px; padding: 8px; }
+.rules-editor { width: 100%; font-family: Consolas, monospace; font-size: 12.5px;
+  padding: 10px; border-radius: 8px; border: 1px solid #c8d1da; background: #fbfcfe;
+  color: var(--ink); resize: vertical; margin: 8px 0; }
+.rules-editor:focus { outline: 2px solid #bcd4ee; border-color: var(--accent); }
+.rules-mode-toggle { display: flex; gap: 6px; }
+.rules-mode-toggle button { padding: 5px 12px; font-size: 12.5px; }
+.rule-cards { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+.rule-cards .item-card { margin: 0; }
+.rule-add-form { background: #f8fafb; margin: 10px 0; }
+.rule-add-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px; margin: 10px 0; }
+.rule-add-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
+.rule-add-grid select, .rule-add-grid input { padding: 7px 9px; border-radius: 8px;
+  border: 1px solid #c8d1da; background: #fff; font: inherit; color: var(--ink);
+  max-width: none; }
+.rule-add-desc { grid-column: 1 / -1; }
 .actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .actions input { flex: 1; min-width: 180px; max-width: none; }
 .bar { display: flex; align-items: center; gap: 12px; margin: 10px 0;

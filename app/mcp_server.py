@@ -52,6 +52,28 @@ def add_document(pile_id: str, path: str) -> str:
 
 
 @mcp.tool()
+def get_pile_rules(pile_id: str) -> str:
+    """The playbook a pile is examined against right now: its own uploaded
+    rules if it has any, else the system default (source: 'pile' | 'default')."""
+    return _safe(service.get_pile_rules, pile_id)
+
+
+@mcp.tool()
+def set_pile_rules(pile_id: str, rules_yaml: str) -> str:
+    """Hand this pile the rules it should be examined against — a staged
+    YAML playbook (compliance checklist / contract playbook / style guide).
+    Validated against the checks this engine actually implements before
+    being stored; rejected with the specific reason if invalid."""
+    return _safe(service.set_pile_rules, pile_id, rules_yaml)
+
+
+@mcp.tool()
+def clear_pile_rules(pile_id: str) -> str:
+    """Revert a pile to the system default playbook."""
+    return _safe(service.clear_pile_rules, pile_id)
+
+
+@mcp.tool()
 def run_analysis(pile_id: str, kind: str = "full",
                  doc_ids: list[str] | None = None) -> str:
     """Run the analysis pipeline synchronously until it completes or pauses

@@ -85,3 +85,27 @@ def test_unknown_format_rejected(pile):
     with pytest.raises(ServiceError) as exc:
         service.add_document_bytes(pile["id"], "sheet.xlsx", b"PK\x03\x04junk")
     assert exc.value.status == 422
+
+
+def test_corrupt_docx_rejected_as_422_not_a_crash(pile):
+    """An accepted extension with unreadable content is a system-boundary
+    error (honest 422), never an unhandled 500 — python-docx raises
+    zipfile.BadZipFile on this, which must not escape read_document."""
+    import pytest
+
+    from app.service import ServiceError
+
+    with pytest.raises(ServiceError) as exc:
+        service.add_document_bytes(pile["id"], "bad.docx", b"not actually a docx file")
+    assert exc.value.status == 422
+
+
+def test_corrupt_pdf_rejected_as_422_not_a_crash(pile):
+    """Same boundary, pypdf's failure mode (PdfStreamError / similar)."""
+    import pytest
+
+    from app.service import ServiceError
+
+    with pytest.raises(ServiceError) as exc:
+        service.add_document_bytes(pile["id"], "bad.pdf", b"%PDF-1.4 not a real pdf body")
+    assert exc.value.status == 422

@@ -71,12 +71,20 @@ READERS = {
 
 def read_document(path: str | Path) -> dict:
     """Returns {filename, format, raw_text, sha256}. Raises ValueError for a
-    format outside the declared set — the caller decides how to escalate."""
+    format outside the declared set, or for content the reader can't parse
+    (corrupt docx/pdf, etc) — the caller decides how to escalate. Untrusted
+    file content is a system boundary: a bad file must produce an honest
+    422, never an unhandled 500."""
     path = Path(path)
     ext = path.suffix.lower()
     if ext not in READERS:
         raise ValueError(f"format {ext!r} is outside the declared set")
-    raw = READERS[ext](path.read_bytes())
+    try:
+        raw = READERS[ext](path.read_bytes())
+    except Exception as exc:
+        raise ValueError(
+            f"{path.name!r} could not be read as {ext} — corrupt or "
+            f"unsupported content ({exc})") from exc
     text = normalize(raw)
     return {
         "filename": path.name,

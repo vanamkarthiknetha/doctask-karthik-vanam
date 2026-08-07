@@ -153,6 +153,14 @@ CREATE TABLE IF NOT EXISTS cost_ledger (
     ts            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Schema-enforced: at most one active run per pile, ever — not just a
+-- read-then-write check in Python, which races under concurrent start_run
+-- calls on the same pile. Status transitions are UPDATEs on the same row,
+-- so a run progressing through its own active statuses never conflicts
+-- with itself; only a genuinely second concurrent run does.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_runs_one_active_per_pile
+    ON runs (pile_id) WHERE status IN ('running', 'awaiting_review', 'committing');
+
 CREATE INDEX IF NOT EXISTS idx_documents_pile ON documents(pile_id);
 CREATE INDEX IF NOT EXISTS idx_facts_pile ON facts(pile_id, entity, key);
 CREATE INDEX IF NOT EXISTS idx_findings_run ON findings(run_id);

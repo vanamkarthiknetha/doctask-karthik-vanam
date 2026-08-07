@@ -6,6 +6,8 @@ import threading
 import uuid
 from pathlib import Path
 
+import psycopg
+
 from . import config, db, graph, ingest
 from .rules_engine import load_playbook, parse_playbook_yaml
 
@@ -186,6 +188,11 @@ ACTIVE_STATUSES = ("running", "awaiting_review", "committing")
 def start_run(pile_id: str, kind: str = "full", doc_ids: list[str] | None = None,
               wait: bool = False) -> dict:
     get_pile(pile_id)
+    # Fast-path check: gives a friendly error naming the existing run in the
+    # common case. Not the actual guarantee — two concurrent calls can both
+    # pass this SELECT before either INSERTs (TOCTOU). The real enforcement
+    # is uq_runs_one_active_per_pile below, which the database applies
+    # atomically regardless of how many callers race here.
     active = db.one(
         "SELECT id FROM runs WHERE pile_id=%s AND status = ANY(%s)",
         (pile_id, list(ACTIVE_STATUSES)),
@@ -201,12 +208,16 @@ def start_run(pile_id: str, kind: str = "full", doc_ids: list[str] | None = None
     if not doc_ids and kind == "full":
         raise ServiceError(422, "pile has no documents")
     thread_id = f"run-{uuid.uuid4()}"
-    run = db.one(
-        "INSERT INTO runs (pile_id, kind, thread_id, trigger_doc) "
-        "VALUES (%s,%s,%s,%s) RETURNING *",
-        (pile_id, kind, thread_id,
-         doc_ids[0] if kind == "update" and doc_ids else None),
-    )
+    try:
+        run = db.one(
+            "INSERT INTO runs (pile_id, kind, thread_id, trigger_doc) "
+            "VALUES (%s,%s,%s,%s) RETURNING *",
+            (pile_id, kind, thread_id,
+             doc_ids[0] if kind == "update" and doc_ids else None),
+        )
+    except psycopg.errors.UniqueViolation:
+        raise ServiceError(
+            409, "pile already has an active run; finish or resume it first")
     initial = {
         "run_id": str(run["id"]), "pile_id": pile_id, "kind": kind,
         "doc_ids": doc_ids,

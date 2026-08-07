@@ -59,3 +59,65 @@ def test_second_run_on_busy_pile_is_refused(pile):
     assert exc.value.status == 409
     # the original run is untouched
     assert service.get_run(run["id"])["status"] == "awaiting_review"
+
+
+def test_concurrent_start_run_on_same_pile_stays_one_run(monkeypatch):
+    """A sequential test can't catch a TOCTOU: two start_run calls both
+    reading 'no active run' before either INSERTs. Relying on real thread
+    scheduling to hit that window is flaky in both directions — it might
+    not fire even when the bug is present. So force it deterministically:
+    gate every thread right after its pre-check SELECT and release them
+    together, so all n are guaranteed to race into the INSERT at once. The
+    real guarantee under test is the schema's uq_runs_one_active_per_pile
+    index, not the read-then-write pre-check (which this gate defeats)."""
+    p = service.create_pile(f"test-conc-race-{uuid.uuid4().hex[:8]}")
+    try:
+        seed_documents(p["id"], SEED)
+        n = 5
+        gate = threading.Barrier(n)
+        orig_one = db.one
+        precheck_sql = "SELECT id FROM runs WHERE pile_id=%s AND status = ANY(%s)"
+
+        def gated_one(sql, params=()):
+            result = orig_one(sql, params)
+            if sql.strip() == precheck_sql:
+                gate.wait(timeout=30)   # hold every thread here until all n arrive
+            return result
+
+        monkeypatch.setattr(db, "one", gated_one)
+
+        results = [None] * n
+
+        def go(i):
+            try:
+                results[i] = service.start_run(p["id"], kind="full", wait=True)
+            except ServiceError as exc:
+                results[i] = exc
+
+        threads = [threading.Thread(target=go, args=(i,)) for i in range(n)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=120)
+
+        successes = [r for r in results if isinstance(r, dict)]
+        failures = [r for r in results if isinstance(r, ServiceError)]
+        assert len(successes) == 1, f"expected exactly one winner, got: {results}"
+        assert len(failures) == n - 1
+        assert all(f.status == 409 for f in failures)
+
+        # a rejected start_run must never leave a row behind
+        run_count = db.one("SELECT count(*) AS n FROM runs WHERE pile_id=%s",
+                           (p["id"],))["n"]
+        assert run_count == 1
+
+        # finish the one real run and confirm facts weren't duplicated by a
+        # second run that should never have been allowed to start
+        run_id = successes[0]["id"]
+        for item in service.list_pending(run_id):
+            service.decide_item(item["id"], approve=True)
+        service.resume_run(run_id, wait=True)
+        facts = service.get_audit(p["id"])["facts"]
+        assert len(facts) > 0
+    finally:
+        db.q("DELETE FROM piles WHERE id=%s", (p["id"],))

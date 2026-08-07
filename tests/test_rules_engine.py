@@ -61,6 +61,36 @@ def test_playbook_clean_context_reports_every_rule_clean():
     assert all(r["outcome"] == "clean" for r in report)
 
 
+def test_entity_canonicalization_unifies_model_spelling_drift():
+    from app.stages import canonicalize_entity
+
+    # First document seen establishes the display name (suffix stripped).
+    assert canonicalize_entity("Brightline Health LLC", []) == "Brightline Health"
+    # Later spellings unify to the known entity...
+    known = ["Halcyon Support Desk"]
+    assert canonicalize_entity("Halcyon", known) == "Halcyon Support Desk"
+    assert canonicalize_entity("Halcyon Support Desk Ltd", known) == \
+        "Halcyon Support Desk"
+    # ...but unrelated clients never merge.
+    assert canonicalize_entity("Corvid Recruiting GmbH", known) == \
+        "Corvid Recruiting"
+    assert canonicalize_entity("Juniper Logistics Co", ["Corvid Recruiting"]) \
+        == "Juniper Logistics"
+
+
+def test_key_normalization_rescues_decorated_keys_and_drops_garbage():
+    from app.reconcile import normalize_key
+
+    # Live models decorate keys with prompt category labels — rescue them.
+    assert normalize_key("contracts/amendments/per_minute_rate") == "per_minute_rate"
+    assert normalize_key("invoices/billed_minutes") == "billed_minutes"
+    assert normalize_key("Billed Rate") == "billed_rate"
+    assert normalize_key("per_minute_rate") == "per_minute_rate"
+    # Garbage keys never enter the fact store.
+    assert normalize_key("contracts/amendments") is None
+    assert normalize_key("random_key") is None
+
+
 def test_playbook_detects_violations():
     playbook = load_playbook(config.RULES_FILE)
     docs = {"d1": _doc("d1", "contract", "2026-01-01")}

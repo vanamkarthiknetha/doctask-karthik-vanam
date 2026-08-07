@@ -52,3 +52,36 @@ Format: id · decision/assumption · why · how to revisit.
   waiting for the first `extract` call in the mock's call log, guaranteeing
   classification finished — the assertion "zero additional classify calls
   after resume" is then exact, not probabilistic.
+- **P15 · Key normalization + whitelist (found by the second LIVE run).**
+  gemini-2.5-flash-lite decorated fact keys with the prompt's category
+  labels ("contracts/amendments/per_minute_rate"), so verified facts existed
+  under names nothing joins on — contract terms silently vanished from the
+  register. Fix at the same trust boundary as quote grounding: keys are
+  normalized (last path segment, lowercased) and must land in the known-key
+  whitelist or the fact is dropped with a logged `unknown-keys-dropped`
+  event. The extraction prompt now enumerates the ten allowed key strings
+  flat, with an explicit "no prefix/suffix/category label" instruction.
+  Running theme of this project, now three layers deep: quotes, entities,
+  keys — verify every joinable string a model returns.
+- **P16 · Live verification status (honest).** Two full live runs completed
+  end to end (pipeline, grounding 10/10 verbatim, gate, commit, SuperDocs
+  render; ~$0.002/run). They surfaced and fixed entity drift (P14) and key
+  drift (P15); findings R1/R4/R6 were confirmed live. The final confirmation
+  that C1–C3 conflicts and R5 also fire live is blocked ONLY by the Gemini
+  key's free-tier daily request quota (~20/day; each analysis run is ~21
+  calls — three runs exhausted it, all remaining models 429). The key-drift
+  fix is unit-tested against the exact decorated strings the live model
+  returned, and the mock suite covers the full detection path. To re-verify
+  live after quota reset (midnight PT) or with billing enabled:
+  `python scripts/demo_run.py --pile live-verify` with `LLM_PROVIDER=gemini`.
+- **P14 · Entity canonicalization (found by the first LIVE run, not the
+  mock).** Gemini spelled the same client three ways across documents
+  ("Halcyon" / "Halcyon Support Desk Ltd" / …), fragmenting entity-keyed
+  joins: conflicts and cross-document rules silently missed. Deterministic
+  fix in `classify_node`: legal-suffix tokens stripped, and a name that
+  token-prefixes an already-known entity in the pile unifies to it
+  (first-seen display wins); every canonicalization is a logged stage event.
+  Assumption accepted knowingly: within one pile, a token-prefix name is the
+  same client (two real clients named "Acme" and "Acme East" in one pile
+  would wrongly merge — the fix for that day is human resolution, not
+  silent guessing).

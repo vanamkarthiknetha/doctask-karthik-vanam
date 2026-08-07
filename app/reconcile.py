@@ -16,6 +16,26 @@ CONTRACT_KEYS = {
     "sla_uptime",
     "auto_renewal_months",
 }
+INVOICE_KEYS = {
+    "billed_minutes",
+    "billed_rate",
+    "billed_amount",
+    "billed_terms",
+    "invoice_period",
+}
+KNOWN_KEYS = CONTRACT_KEYS | INVOICE_KEYS
+
+
+def normalize_key(raw: str) -> str | None:
+    """Live models decorate key names ("contracts/amendments/per_minute_rate").
+    Take the last path-ish segment, lowercase it, and accept it only if it is
+    a known key — anything else returns None and the fact is dropped with a
+    logged event, never stored under a key nothing joins on."""
+    key = str(raw).strip().lower()
+    for sep in ("/", ":", "."):
+        key = key.split(sep)[-1].strip()
+    key = key.replace(" ", "_").replace("-", "_")
+    return key if key in KNOWN_KEYS else None
 # invoice key -> the contract term it restates
 INVOICE_COUNTERPART = {
     "billed_rate": "per_minute_rate",

@@ -15,7 +15,7 @@ from datetime import date
 
 from . import config, db, register
 from .llm.boundary import Classification, get_provider
-from .reconcile import reconcile
+from .reconcile import normalize_key, reconcile
 from .rules_engine import load_playbook, run_rules
 
 # Deterministic injection heuristics, applied in ADDITION to the model's
@@ -35,6 +35,41 @@ def heuristic_injection(text: str) -> str | None:
         if m:
             return m.group(0)
     return None
+
+
+# Live models spell the same client differently across documents ("Halcyon",
+# "Halcyon Support Desk Ltd", ...). Entity joins (reconcile, rules, sections)
+# key on the entity string, so drift silently fragments a client. Deterministic
+# canonicalization: drop legal-suffix tokens, then unify with an already-known
+# entity in the pile when one name token-prefixes the other (first seen wins).
+LEGAL_SUFFIXES = {"llc", "gmbh", "ltd", "inc", "co", "corp", "corporation",
+                  "company", "limited", "plc", "sa", "bv"}
+
+
+def _entity_tokens(name: str) -> list[str]:
+    tokens = re.findall(r"[a-z0-9]+", name.lower())
+    while tokens and tokens[-1] in LEGAL_SUFFIXES:
+        tokens.pop()
+    return tokens
+
+
+def canonicalize_entity(raw_name: str, known: list[str]) -> str:
+    """Return the canonical display name for raw_name given the pile's
+    already-known entities. Assumption (logged): within one pile, a client
+    name that token-prefixes another refers to the same client."""
+    tokens = _entity_tokens(raw_name)
+    if not tokens:
+        return raw_name
+    for existing in known:
+        et = _entity_tokens(existing)
+        shorter, longer = sorted((tokens, et), key=len)
+        if longer[: len(shorter)] == shorter:
+            return existing  # consistent display: first seen wins
+    # strip trailing legal-suffix words from the display form, keep casing
+    words = raw_name.split()
+    while words and re.sub(r"[^a-z0-9]", "", words[-1].lower()) in LEGAL_SUFFIXES:
+        words.pop()
+    return " ".join(words) or raw_name
 
 
 def event(run_id: str, stage: str, decision: str, detail: dict | None = None) -> None:
@@ -117,6 +152,14 @@ def classify_node(state: dict) -> dict:
         heur = heuristic_injection(doc["raw_text"])
         flagged = bool(c.instruction_like or heur)
         quarantine = c.doc_class == "unknown" or c.confidence < 0.6
+        known = [r["entity"] for r in db.q(
+            "SELECT DISTINCT entity FROM documents WHERE pile_id=%s "
+            "AND entity IS NOT NULL", (pile_id,))]
+        entity = canonicalize_entity(c.entity, known)
+        if entity != c.entity:
+            event(run_id, "classify", "entity-canonicalized",
+                  {"doc": doc["filename"], "model_said": c.entity,
+                   "canonical": entity})
         try:
             doc_date = date.fromisoformat(c.doc_date) if c.doc_date else None
         except ValueError:
@@ -124,12 +167,12 @@ def classify_node(state: dict) -> dict:
         db.q(
             "UPDATE documents SET doc_class=%s, entity=%s, doc_date=%s, "
             "class_confidence=%s, injection_flagged=%s, status=%s WHERE id=%s",
-            (c.doc_class, c.entity, doc_date, c.confidence, flagged,
+            (c.doc_class, entity, doc_date, c.confidence, flagged,
              "quarantined" if quarantine else "classified", doc["id"]),
         )
         if quarantine:
             _insert_finding(
-                pile_id, run_id, "classification-escalation", "high", c.entity,
+                pile_id, run_id, "classification-escalation", "high", entity,
                 f"document '{doc['filename']}' could not be confidently "
                 f"classified (class={c.doc_class}, confidence={c.confidence}); "
                 "it was quarantined and contributes no facts until a human "
@@ -183,11 +226,19 @@ def ground_node(state: dict) -> dict:
         if doc is None or doc["status"] == "extracted":
             continue
         text = doc["raw_text"]
-        verified, failed = [], []
+        verified, failed, unknown_keys = [], [], []
         for f in cand:
+            key = normalize_key(f["key"])
+            if key is None:
+                unknown_keys.append(f["key"])
+                continue
+            f = {**f, "key": key}
             quote = " ".join(str(f["quote"]).split())
             idx = text.find(quote)
             (verified if idx >= 0 else failed).append((f, idx, quote))
+        if unknown_keys:
+            event(run_id, "ground", "unknown-keys-dropped",
+                  {"doc": doc["filename"], "keys": unknown_keys})
         if failed and retry_counts.get(doc_id, 0) < 2:
             retry_counts[doc_id] = retry_counts.get(doc_id, 0) + 1
             retry_docs.append(doc_id)

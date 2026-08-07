@@ -29,6 +29,7 @@ MODEL_PRICES = {
 SUPERDOCS_API = "https://api.superdocs.app"
 
 WATCH_DIR = os.environ.get("WATCH_DIR", str(REPO_ROOT / "corpus" / "incoming"))
+CORPUS_DIR = os.environ.get("CORPUS_DIR", str(REPO_ROOT / "corpus"))
 EXPORT_DIR = os.environ.get("EXPORT_DIR", str(REPO_ROOT / "exports"))
 RULES_FILE = os.environ.get("RULES_FILE", str(REPO_ROOT / "rules" / "playbook.yaml"))
 FIXTURES_DIR = Path(

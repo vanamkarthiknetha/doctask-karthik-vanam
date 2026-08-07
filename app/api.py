@@ -51,7 +51,24 @@ class DecisionIn(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"ok": True, "llm_provider": get_provider().name}
+    provider = get_provider()
+    return {"ok": True, "llm_provider": provider.name,
+            "llm_model": getattr(provider, "model", None),
+            "watch_dir": config.WATCH_DIR}
+
+
+@app.get("/corpus")
+def sample_sets():
+    return service.list_sample_sets()
+
+
+class SampleIn(BaseModel):
+    set: str = "seed"
+
+
+@app.post("/piles/{pile_id}/documents/sample")
+def load_sample(pile_id: str, body: SampleIn):
+    return _wrap(service.load_sample_set, pile_id, body.set)
 
 
 @app.post("/piles")

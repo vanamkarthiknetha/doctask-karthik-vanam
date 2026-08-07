@@ -28,14 +28,16 @@ services:
       SUPERDOCS_API_KEY: ${SUPERDOCS_API_KEY:-}
       LLM_PROVIDER: ${LLM_PROVIDER:-auto}
       WATCH_DIR: /data/incoming
+      CORPUS_DIR: /data/corpus
     ports:
       - "8000:8000"
     volumes:
       - ./corpus:/data/corpus:ro
-      - incoming:/data/incoming
+      # Bind mount: drop a file into ./corpus/incoming/<pile-name>/ on the
+      # host (Explorer drag-and-drop works) and the watcher picks it up.
+      - ./corpus/incoming:/data/incoming
       - exports:/data/exports
 
 volumes:
   dbdata:
-  incoming:
   exports:

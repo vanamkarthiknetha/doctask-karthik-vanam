@@ -4,8 +4,9 @@ is an operation here, not a UI feature.
 """
 import threading
 import uuid
+from pathlib import Path
 
-from . import db, graph, ingest
+from . import config, db, graph, ingest
 
 
 class ServiceError(Exception):
@@ -92,6 +93,38 @@ def _doc_out(d: dict) -> dict:
         "entity": d["entity"], "status": d["status"],
         "injection_flagged": d["injection_flagged"],
     }
+
+
+def list_sample_sets() -> list[dict]:
+    """Bundled corpus sets a user can load with one click (demo convenience;
+    the same files ship in the repo under corpus/)."""
+    root = Path(config.CORPUS_DIR)
+    if not root.is_dir():
+        return []
+    sets = []
+    for d in sorted(p for p in root.iterdir() if p.is_dir()):
+        if d.name == "incoming":  # the watched location, not a sample set
+            continue
+        files = sorted(f.name for f in d.iterdir()
+                       if f.is_file() and f.suffix.lower() in config.ACCEPTED_FORMATS)
+        if files:
+            sets.append({"name": d.name, "files": files})
+    return sets
+
+
+def load_sample_set(pile_id: str, set_name: str) -> list[dict]:
+    get_pile(pile_id)
+    root = Path(config.CORPUS_DIR)
+    target = (root / set_name).resolve()
+    if target.parent != root.resolve() or not target.is_dir():
+        raise ServiceError(404, f"sample set not found: {set_name}")
+    out = []
+    for f in sorted(target.iterdir()):
+        if f.is_file() and f.suffix.lower() in config.ACCEPTED_FORMATS:
+            out.append(add_document_path(pile_id, str(f)))
+    if not out:
+        raise ServiceError(404, f"sample set is empty: {set_name}")
+    return out
 
 
 def list_documents(pile_id: str) -> list[dict]:

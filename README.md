@@ -29,10 +29,15 @@ All companies, contracts, and figures in the corpus are synthetic.
 docker compose up --build
 ```
 
-Then open **http://localhost:8000/ui** (review UI) or use the REST API on
-`:8000`. Works with **zero API keys**: the LLM boundary falls back to a
-deterministic mock that replays recorded extractions for the bundled corpus,
-and document rendering is skipped with a logged decision.
+Then open **http://localhost:8000/ui** and drive the whole loop from the
+browser: **＋ New pile → upload documents** (drag-and-drop, or one click to
+load the bundled sample corpus) **→ ▶ Run analysis → review each proposed
+item → resume**. The pipeline stepper shows where the run is at any moment,
+the header shows which LLM backend is live, and tabs are deep-linkable
+(`/ui#review`, `/ui#register`, …). Works with **zero API keys**: the LLM
+boundary falls back to a deterministic mock that replays recorded
+extractions for the bundled corpus, and document rendering is skipped with
+a logged decision.
 
 Optional keys (put them in `.env`, see `.env.example`):
 
@@ -65,16 +70,17 @@ curl :8000/piles/<pile>/register
 
 ### The watched location (stay alive)
 
-Drop a file into the watch volume and the system produces a **focused
-update** — only the touched client's section changes; everything else stays
-byte-identical and the commit records the proof:
+Drop a file into `corpus/incoming/<pile-name>/` — plain Explorer/Finder
+drag-and-drop works, the folder is bind-mounted into the container — and
+the system produces a **focused update**: only the touched client's section
+changes; everything else stays byte-identical and the commit records the
+proof:
 
 ```bash
-docker compose cp corpus/extra/brightline-amendment-2.md api:/data/incoming/clients/
-# then approve the update in the UI — check the provenance tab afterwards
+cp corpus/extra/brightline-amendment-2.md corpus/incoming/clients/
+# a new update run appears at the review gate within ~2s — approve it in
+# the UI, then check the provenance tab for the byte-identity record
 ```
-
-(Local dev: the watch dir is `corpus/incoming/<pile-name>/`.)
 
 ### Tests — no live key required
 
@@ -84,7 +90,7 @@ python -m venv .venv && .venv/Scripts/pip install -r requirements.txt   # once
 .venv/Scripts/python -m pytest tests -q
 ```
 
-20 tests, ~30s. They test the claims, not the mocks: a hard process kill
+27 tests, ~40s. They test the claims, not the mocks: a hard process kill
 mid-run with checkpoint resume (counting real boundary calls to prove no
 rework), per-item gate isolation, a document that gives orders, unverifiable
 quotes being dropped and escalated, two piles running concurrently, and the

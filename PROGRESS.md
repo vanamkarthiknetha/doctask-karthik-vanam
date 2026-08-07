@@ -63,17 +63,44 @@ Format: id · decision/assumption · why · how to revisit.
   flat, with an explicit "no prefix/suffix/category label" instruction.
   Running theme of this project, now three layers deep: quotes, entities,
   keys — verify every joinable string a model returns.
-- **P16 · Live verification status (honest).** Two full live runs completed
-  end to end (pipeline, grounding 10/10 verbatim, gate, commit, SuperDocs
-  render; ~$0.002/run). They surfaced and fixed entity drift (P14) and key
-  drift (P15); findings R1/R4/R6 were confirmed live. The final confirmation
-  that C1–C3 conflicts and R5 also fire live is blocked ONLY by the Gemini
-  key's free-tier daily request quota (~20/day; each analysis run is ~21
-  calls — three runs exhausted it, all remaining models 429). The key-drift
-  fix is unit-tested against the exact decorated strings the live model
-  returned, and the mock suite covers the full detection path. To re-verify
-  live after quota reset (midnight PT) or with billing enabled:
-  `python scripts/demo_run.py --pile live-verify` with `LLM_PROVIDER=gemini`.
+- **P16 · Live verification status — now COMPLETE (2026-08-07, fresh key).**
+  Two full live runs completed end to end earlier (pipeline, grounding 10/10
+  verbatim, gate, commit, SuperDocs render; ~$0.002/run), surfacing and
+  fixing entity drift (P14) and key drift (P15) and confirming R1/R4/R6.
+  With a new Gemini key, a third full live run plus a live watcher update
+  run confirmed the remainder: **C1, C2*, C3 conflicts and R5 all fire
+  live** (*C2 fired after the P18 fix below — its first live absence is what
+  exposed P18). Full run: ~21 calls / $0.019; focused update: 2 calls /
+  $0.0012 with byte-identity proven for untouched sections.
+- **P18 · Contract-key restatement conflicts (found by the third LIVE run).**
+  Gemini stated the July invoice's terms as `payment_terms=net-45` — the
+  CONTRACT key — instead of `billed_terms`. Reconcile correctly refused to
+  let it become effective (invoices never supersede authoritative docs) but
+  the counterpart-conflict pass only watched `billed_*` keys, so the planted
+  C2 conflict silently vanished. Fix: a contract-term fact from a
+  non-authoritative document now hits the same comparison as its `billed_*`
+  counterpart, and the same disagreement stated under both spellings dedupes
+  to one conflict. Unit-tested against the exact live shape; then confirmed
+  live (C2 fired on the next update run). Fourth instance of the project
+  theme: verify every joinable string a model returns — including which KEY
+  it chose to put a value under.
+- **P19 · Latest-invoice ordering by document date, not period prose.** The
+  register's "Latest invoice" line picked the newest invoice by string-max
+  of the model-returned `invoice_period`. Mock fixtures said "2026-07"
+  (sortable); the live model said "July 2026", and "July" < "June" as a
+  string, so June was presented as latest. Fix: order by the document's
+  schema-validated ISO `doc_date` (the same authority supersession already
+  uses); the period text is display only. Unit-tested with the live strings.
+- **P17 · The UI drives the full loop (2026-08-07).** Added pile creation,
+  drag-and-drop upload, one-click sample-corpus load (`POST
+  /piles/{id}/documents/sample`, sets listed at `GET /corpus`), a Run
+  analysis button, a pipeline stepper with live stage read-out, an LLM
+  provider badge from `/health`, deep-linkable tabs (`/ui#review`), and
+  auto-follow of the newest run (the review tab opens itself when a run
+  reaches the gate). The watch folder became a host bind mount
+  (`./corpus/incoming`) so Explorer drag-and-drop feeds the watcher.
+  Ingestion via REST/watcher/MCP is unchanged — the UI is a client of the
+  same service layer, not a new path.
 - **P14 · Entity canonicalization (found by the first LIVE run, not the
   mock).** Gemini spelled the same client three ways across documents
   ("Halcyon" / "Halcyon Support Desk Ltd" / …), fragmenting entity-keyed

@@ -1,0 +1,8 @@
+INVOICE INV-2026-06-CRV
+Meridian Voice Systems, Inc.
+Bill to: Corvid Recruiting GmbH
+Billing period: June 2026
+Conversation minutes used: 15,200
+Rate applied: $0.50 per conversation minute.
+Total amount due: $7,600.00
+Payment terms: net-30.

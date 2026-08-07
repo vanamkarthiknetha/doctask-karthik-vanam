@@ -1,0 +1,41 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: doctask
+      POSTGRES_PASSWORD: doctask
+      POSTGRES_DB: doctask
+    ports:
+      - "5433:5432"
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U doctask -d doctask"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://doctask:doctask@db:5432/doctask
+      # Optional. Without keys the system runs in mock mode on the bundled corpus.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      SUPERDOCS_API_KEY: ${SUPERDOCS_API_KEY:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-auto}
+      WATCH_DIR: /data/incoming
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./corpus:/data/corpus:ro
+      - incoming:/data/incoming
+      - exports:/data/exports
+
+volumes:
+  dbdata:
+  incoming:
+  exports:

@@ -1,0 +1,407 @@
+{
+  "4f28f49fa7381e4452a7ec9a79d76b94ca57255f622e71b25871a982dbf1775e": {
+    "filename": "brightline-msa.md",
+    "classify": {
+      "doc_class": "contract",
+      "entity": "Brightline Health",
+      "doc_date": "2026-01-15",
+      "confidence": 0.97,
+      "instruction_like": false
+    },
+    "facts": [
+      {
+        "key": "per_minute_rate",
+        "value": "0.45",
+        "quote": "The usage rate is $0.45 per conversation minute."
+      },
+      {
+        "key": "monthly_commitment_minutes",
+        "value": "20000",
+        "quote": "Client commits to a monthly minimum of 20,000 conversation minutes."
+      },
+      {
+        "key": "payment_terms",
+        "value": "net-30",
+        "quote": "Invoices are payable on net-30 terms."
+      },
+      {
+        "key": "sla_uptime",
+        "value": "99.9",
+        "quote": "Provider guarantees 99.9% monthly platform uptime."
+      },
+      {
+        "key": "auto_renewal_months",
+        "value": "12",
+        "quote": "This Agreement renews automatically for successive 12-month terms unless either party gives 60 days written notice."
+      }
+    ]
+  },
+  "1c434f223302587f4e1c23574880de038bf226e4b7c7ca8ffd5ade141240557c": {
+    "filename": "brightline-amendment-1.html",
+    "classify": {
+      "doc_class": "amendment",
+      "entity": "Brightline Health",
+      "doc_date": "2026-04-01",
+      "confidence": 0.97,
+      "instruction_like": false
+    },
+    "facts": [
+      {
+        "key": "per_minute_rate",
+        "value": "0.42",
+        "quote": "The usage rate is revised to $0.42 per conversation minute."
+      },
+      {
+        "key": "monthly_commitment_minutes",
+        "value": "30000",
+        "quote": "The monthly minimum commitment is increased to 30,000 conversation minutes."
+      }
+    ]
+  },
+  "271f0f2c7c6462342e7c88b0c20fbcb78a6e2697eafa3f9bdee5618bdd88a401": {
+    "filename": "brightline-invoice-2026-06.docx",
+    "classify": {
+      "doc_class": "invoice",
+      "entity": "Brightline Health",
+      "doc_date": "2026-06-30",
+      "confidence": 0.97,
+      "instruction_like": false
+    },
+    "facts": [
+      {
+        "key": "billed_minutes",
+        "value": "34000",
+        "quote": "Conversation minutes used: 34,000"
+      },
+      {
+        "key": "billed_rate",
+        "value": "0.45",
+        "quote": "Rate applied: $0.45 per conversation minute."
+      },
+      {
+        "key": "billed_amount",
+        "value": "15300.00",
+        "quote": "Total amount due: $15,300.00"
+      },
+      {
+        "key": "billed_terms",
+        "value": "net-30",
+        "quote": "Payment terms: net-30."
+      },
+      {
+        "key": "invoice_period",
+        "value": "2026-06",
+        "quote": "Billing period: June 2026"
+      }
+    ]
+  },
+  "9c5f8e98114eb01fcba765ca8bdc4cc5bf3350a3732d15e98156d93deed1a908": {
+    "filename": "brightline-invoice-2026-07.pdf",
+    "classify": {
+      "doc_class": "invoice",
+      "entity": "Brightline Health",
+      "doc_date": "2026-07-31",
+      "confidence": 0.97,
+      "instruction_like": false
+    },
+    "facts": [
+      {
+        "key": "billed_minutes",
+        "value": "28000",
+        "quote": "Conversation minutes used: 28,000"
+      },
+      {
+        "key": "billed_rate",
+        "value": "0.42",
+        "quote": "Rate applied: $0.42 per conversation minute."
+      },
+      {
+        "key": "billed_amount",
+        "value": "11760.00",
+        "quote": "Total amount due: $11,760.00"
+      },
+      {
+        "key": "billed_terms",
+        "value": "net-45",
+        "quote": "Payment terms: net-45."
+      },
+      {
+        "key": "invoice_period",
+        "value": "2026-07",
+        "quote": "Billing period: July 2026"
+      }
+    ]
+  },
+  "4c347ccdd6b6aabf6113f667f0fa78bb4319cd1cb786bdb94109dcaaf135296a": {
+    "filename": "corvid-msa.md",
+    "classify": {
+      "doc_class": "contract",
+      "entity": "Corvid Recruiting",
+      "doc_date": "2026-02-01",
+      "confidence": 0.97,
+      "instruction_like": false
+    },
+    "facts": [
+      {
+        "key": "per_minute_rate",
+        "value": "0.50",
+        "quote": "The usage rate is $0.50 per conversation minute."
+      },
+      {
+        "key": "monthly_commitment_minutes",
+        "value": "10000",
+        "quote": "Client commits to a monthly minimum of 10,000 conversation minutes."
+      },
+      {
+        "key": "payment_terms",
+        "value": "net-30",
+        "quote": "Invoices are payable on net-30 terms."
+      },
+      {
+        "key": "sla_uptime",
+        "value": "99.5",
+        "quote": "Provider guarantees 99.5% monthly platform uptime."
+      },
+      {
+        "key": "auto_renewal_months",
+        "value": "24",
+        "quote": "This Agreement renews automatically for successive 24-month terms unless either party gives 90 days written notice."
+      }
+    ]
+  },
+  "9d0c5ee09ecbd479fc4cb787087015121a2bb792538adc8391dafcce548abd7b": {
+    "filename": "corvid-amendment-1.md",
+    "classify": {
+      "doc_class": "amendment",
+      "entity": "Corvid Recruiting",
+      "doc_date": "2026-05-10",
+      "confidence": 0.97,
+      "instruction_like": false
+    },
+    "facts": [
+      {
+        "key": "sla_uptime",
+        "value": "99.9",
+        "quote": "The uptime guarantee is raised to 99.9% monthly platform uptime."
+      },
+      {
+        "key": "auto_renewal_months",
+        "value": "24",
+        "quote": "The renewal term remains 24 months as set out in Section 5 of the Agreement."
+      }
+    ]
+  },
+  "6f2f9abf11a8004d06656a5bf433c87ee047ebb856cf9d73a84936270c06796a": {
+    "filename": "corvid-invoice-2026-06.txt",
+    "classify": {
+      "doc_class": "invoice",
+      "entity": "Corvid Recruiting",
+      "doc_date": "2026-06-30",
+      "confidence": 0.97,
+      "instruction_like": false
+    },
+    "facts": [
+      {
+        "key": "billed_minutes",
+        "value": "15200",
+        "quote": "Conversation minutes used: 15,200"
+      },
+      {
+        "key": "billed_rate",
+        "value": "0.50",
+        "quote": "Rate applied: $0.50 per conversation minute."
+      },
+      {
+        "key": "billed_amount",
+        "value": "7600.00",
+        "quote": "Total amount due: $7,600.00"
+      },
+      {
+        "key": "billed_terms",
+        "value": "net-30",
+        "quote": "Payment terms: net-30."
+      },
+      {
+        "key": "invoice_period",
+        "value": "2026-06",
+        "quote": "Billing period: June 2026"
+      }
+    ]
+  },
+  "ca1a593bc7ebba08a003ef9b906e7a37bf2639f48453a3311e1589d0080e1edf": {
+    "filename": "halcyon-msa.md",
+    "classify": {
+      "doc_class": "contract",
+      "entity": "Halcyon Support Desk",
+      "doc_date": "2026-03-20",
+      "confidence": 0.97,
+      "instruction_like": false
+    },
+    "facts": [
+      {
+        "key": "per_minute_rate",
+        "value": "0.38",
+        "quote": "The usage rate is $0.38 per conversation minute."
+      },
+      {
+        "key": "monthly_commitment_minutes",
+        "value": "8000",
+        "quote": "Client commits to a monthly minimum of 8,000 conversation minutes."
+      },
+      {
+        "key": "payment_terms",
+        "value": "net-15",
+        "quote": "Invoices are payable on net-15 terms."
+      },
+      {
+        "key": "sla_uptime",
+        "value": "99.9",
+        "quote": "Provider guarantees 99.9% monthly platform uptime."
+      },
+      {
+        "key": "auto_renewal_months",
+        "value": "6",
+        "quote": "This Agreement renews automatically for successive 6-month terms unless either party gives 30 days written notice."
+      }
+    ]
+  },
+  "8bdf760ccc0725a616ec36cd1490ed64c19188750437b158b5a8a97224502e2a": {
+    "filename": "halcyon-invoice-2026-07.pdf",
+    "classify": {
+      "doc_class": "invoice",
+      "entity": "Halcyon Support Desk",
+      "doc_date": "2026-07-31",
+      "confidence": 0.97,
+      "instruction_like": false
+    },
+    "facts": [
+      {
+        "key": "billed_minutes",
+        "value": "12000",
+        "quote": "Conversation minutes used: 12,000"
+      },
+      {
+        "key": "billed_rate",
+        "value": "0.41",
+        "quote": "Rate applied: $0.41 per conversation minute."
+      },
+      {
+        "key": "billed_amount",
+        "value": "4560.00",
+        "quote": "Total amount due: $4,560.00"
+      },
+      {
+        "key": "billed_terms",
+        "value": "net-15",
+        "quote": "Payment terms: net-15."
+      },
+      {
+        "key": "invoice_period",
+        "value": "2026-07",
+        "quote": "Billing period: July 2026"
+      }
+    ]
+  },
+  "ff06a4155b31fc38f5d5fde5019c7089ae50e4f10d9495b2fe4d378f71b0d485": {
+    "filename": "halcyon-onboarding-memo.txt",
+    "classify": {
+      "doc_class": "memo",
+      "entity": "Halcyon Support Desk",
+      "doc_date": "2026-07-05",
+      "confidence": 0.97,
+      "instruction_like": true
+    },
+    "facts": []
+  },
+  "c950d36d15ef80e2f9f3b2d5d92f25317d01ada36a13d2ea3482c6b3b9840d1c": {
+    "filename": "juniper-msa.md",
+    "classify": {
+      "doc_class": "contract",
+      "entity": "Juniper Logistics",
+      "doc_date": "2026-05-01",
+      "confidence": 0.97,
+      "instruction_like": false
+    },
+    "facts": [
+      {
+        "key": "per_minute_rate",
+        "value": "0.47",
+        "quote": "The usage rate is $0.47 per conversation minute."
+      },
+      {
+        "key": "monthly_commitment_minutes",
+        "value": "12000",
+        "quote": "Client commits to a monthly minimum of 12,000 conversation minutes."
+      },
+      {
+        "key": "payment_terms",
+        "value": "net-30",
+        "quote": "Invoices are payable on net-30 terms."
+      },
+      {
+        "key": "sla_uptime",
+        "value": "99.9",
+        "quote": "Provider guarantees 99.9% monthly platform uptime."
+      },
+      {
+        "key": "auto_renewal_months",
+        "value": "12",
+        "quote": "This Agreement renews automatically for successive 12-month terms unless either party gives 60 days written notice."
+      }
+    ]
+  },
+  "ba92c943edc2aa7622b880b7284f9ec45b3238413edbf992c1c297650c607891": {
+    "filename": "juniper-invoice-2026-06.txt",
+    "classify": {
+      "doc_class": "invoice",
+      "entity": "Juniper Logistics",
+      "doc_date": "2026-06-30",
+      "confidence": 0.97,
+      "instruction_like": false
+    },
+    "facts": [
+      {
+        "key": "billed_minutes",
+        "value": "13400",
+        "quote": "Conversation minutes used: 13,400"
+      },
+      {
+        "key": "billed_rate",
+        "value": "0.47",
+        "quote": "Rate applied: $0.47 per conversation minute."
+      },
+      {
+        "key": "billed_amount",
+        "value": "6298.00",
+        "quote": "Total amount due: $6,298.00"
+      },
+      {
+        "key": "billed_terms",
+        "value": "net-30",
+        "quote": "Payment terms: net-30."
+      },
+      {
+        "key": "invoice_period",
+        "value": "2026-06",
+        "quote": "Billing period: June 2026"
+      }
+    ]
+  },
+  "3f2591d51c7f50aa54e68b3a2e5289f3f8d0a96c5833b8eda36e35de81ce9f1b": {
+    "filename": "brightline-amendment-2.md",
+    "classify": {
+      "doc_class": "amendment",
+      "entity": "Brightline Health",
+      "doc_date": "2026-08-01",
+      "confidence": 0.97,
+      "instruction_like": false
+    },
+    "facts": [
+      {
+        "key": "per_minute_rate",
+        "value": "0.40",
+        "quote": "The usage rate is revised to $0.40 per conversation minute."
+      }
+    ]
+  }
+}

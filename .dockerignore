@@ -1,0 +1,10 @@
+.venv
+.git
+__pycache__
+**/__pycache__
+.pytest_cache
+ui/node_modules
+ui/dist
+exports
+corpus/incoming
+.env

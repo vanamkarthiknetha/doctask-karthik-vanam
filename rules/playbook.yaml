@@ -1,0 +1,57 @@
+# Contract playbook for Meridian Voice Systems (fictional).
+# Rules are configuration, not code: each rule names a generic check
+# implemented in app/rules_engine.py and parameterizes it. The engine runs
+# stages in order and reports every rule it evaluated — including the ones
+# that found nothing, so a clean corpus produces an honest empty report.
+
+stages:
+  - name: terms-checks
+    description: Effective contract terms against company policy
+    rules:
+      - id: R1-auto-renewal-cap
+        severity: high
+        description: Auto-renewal terms must not exceed 12 months
+        check: fact_max
+        key: auto_renewal_months
+        max: 12
+
+      - id: R2-payment-terms-cap
+        severity: medium
+        description: Contract payment terms must be net-30 or stricter
+        check: net_terms_max
+        key: payment_terms
+        max_days: 30
+
+      - id: R3-sla-floor
+        severity: medium
+        description: SLA uptime must be at least 99.5 percent
+        check: fact_min
+        key: sla_uptime
+        min: 99.5
+
+      - id: R6-injection-quarantine
+        severity: high
+        description: Source documents must not attempt to instruct the analysis system
+        check: injection_flag
+
+  - name: billing-checks
+    description: Invoices against their own arithmetic and effective terms
+    rules:
+      - id: R4-invoice-arithmetic
+        severity: medium
+        description: Invoice total must equal billed minutes times the stated rate
+        check: invoice_arithmetic
+        tolerance: 0.01
+
+      - id: R5-minimum-commitment
+        severity: medium
+        description: Billed minutes must meet the effective monthly commitment
+        check: minimum_commitment
+
+  - name: register-checks
+    description: Integrity of the register itself
+    rules:
+      - id: R7-claims-cited
+        severity: high
+        description: Every register claim must cite at least one verified fact
+        check: claims_cited

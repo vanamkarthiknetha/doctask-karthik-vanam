@@ -1,0 +1,53 @@
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: #f4f6f8; color: #1d2733;
+  font: 14px/1.5 "Segoe UI", system-ui, sans-serif;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 16px; }
+header { display: flex; justify-content: space-between; align-items: center;
+  flex-wrap: wrap; gap: 8px; }
+h1 { font-size: 20px; margin: 8px 0; }
+h3 { margin: 20px 0 8px; }
+.dim { color: #75818e; font-weight: normal; }
+.mono { font-family: Consolas, monospace; font-size: 12px; }
+.selectors select { margin-left: 8px; padding: 6px; border-radius: 6px;
+  border: 1px solid #c8d1da; background: #fff; }
+nav { display: flex; gap: 4px; margin: 12px 0; flex-wrap: wrap; }
+nav button { padding: 7px 14px; border: 1px solid #c8d1da; background: #fff;
+  border-radius: 6px; cursor: pointer; }
+nav button.active { background: #1a4f8b; color: #fff; border-color: #1a4f8b; }
+.badge { color: #fff; border-radius: 4px; padding: 2px 8px; font-size: 12px;
+  margin-right: 8px; white-space: nowrap; }
+.card { background: #fff; border: 1px solid #dde4ea; border-radius: 8px;
+  padding: 12px 14px; margin: 10px 0; }
+.card.approved { border-left: 4px solid #1e8449; }
+.card.rejected { border-left: 4px solid #b03a2e; opacity: 0.75; }
+.card.pending { border-left: 4px solid #d68910; }
+.card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.card-head .status { margin-left: auto; font-size: 12px; }
+.status.approved, .status.acknowledged { color: #1e8449; }
+.status.rejected { color: #b03a2e; }
+.status.pending, .status.open { color: #d68910; }
+.md { background: #f8fafb; border: 1px solid #e5ebf0; padding: 10px;
+  border-radius: 6px; white-space: pre-wrap; font-family: Consolas, monospace;
+  font-size: 12px; overflow-x: auto; }
+.actions { display: flex; gap: 8px; margin-top: 8px; }
+.actions input { flex: 1; padding: 6px 10px; border: 1px solid #c8d1da;
+  border-radius: 6px; }
+button.approve, button.reject, button.resume { padding: 6px 16px; border: 0;
+  border-radius: 6px; color: #fff; cursor: pointer; }
+button.approve { background: #1e8449; }
+button.reject { background: #b03a2e; }
+button.resume { background: #1a4f8b; margin-left: auto; }
+button.resume:disabled { background: #9fb2c4; cursor: default; }
+.bar { display: flex; align-items: center; gap: 12px; margin: 10px 0; }
+.error { background: #fdecea; border: 1px solid #f5b7b1; color: #922b21;
+  padding: 8px 12px; border-radius: 6px; margin: 8px 0; }
+table.timeline, table.grid { width: 100%; border-collapse: collapse;
+  background: #fff; border: 1px solid #dde4ea; border-radius: 8px; }
+table td, table th { padding: 6px 10px; border-bottom: 1px solid #eef2f5;
+  text-align: left; vertical-align: top; }
+table th { background: #f0f4f7; }
+td.detail { max-width: 420px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+tr.superseded { opacity: 0.55; text-decoration: line-through; }

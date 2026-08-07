@@ -37,6 +37,40 @@ def test_amendment_supersedes_and_invoice_conflicts():
     assert set(r["conflicts"][0]["fact_ids"]) == {"f3", "f2"}
 
 
+def test_invoice_restating_contract_term_under_contract_key_conflicts():
+    """Pinned to live-model behavior (third drift of this kind): Gemini stated
+    the July invoice's terms as payment_terms=net-45 — the CONTRACT key —
+    instead of billed_terms. The restatement must hit the same comparison as
+    billed_terms, and it must never become the effective value."""
+    docs = {"d1": _doc("d1", "contract", "2026-01-01"),
+            "d2": _doc("d2", "invoice", "2026-07-31"),
+            "d3": _doc("d3", "invoice", "2026-06-30")}
+    facts = [
+        _fact("f1", "d1", "ClientCo", "payment_terms", "net-30"),
+        _fact("f2", "d2", "ClientCo", "payment_terms", "net-45"),  # disagrees
+        _fact("f3", "d3", "ClientCo", "payment_terms", "net-30"),  # agrees
+    ]
+    r = reconcile(facts, docs)
+    assert r["effective"][("ClientCo", "payment_terms")]["id"] == "f1", \
+        "an invoice must never supersede an authoritative document"
+    assert len(r["conflicts"]) == 1
+    assert set(r["conflicts"][0]["fact_ids"]) == {"f2", "f1"}
+
+
+def test_both_key_spellings_raise_one_conflict_not_two():
+    docs = {"d1": _doc("d1", "contract", "2026-01-01"),
+            "d2": _doc("d2", "invoice", "2026-07-31",
+                       filename="inv-july.pdf")}
+    facts = [
+        _fact("f1", "d1", "ClientCo", "payment_terms", "net-30"),
+        _fact("f2", "d2", "ClientCo", "payment_terms", "net-45"),
+        _fact("f3", "d2", "ClientCo", "billed_terms", "net-45"),
+    ]
+    r = reconcile(facts, docs)
+    assert len(r["conflicts"]) == 1, \
+        "the same disagreement in two spellings is one conflict, not two"
+
+
 def test_same_date_disagreement_is_conflict_with_no_effective_value():
     docs = {"d1": _doc("d1", "contract", "2026-01-01"),
             "d2": _doc("d2", "contract", "2026-01-01")}
@@ -89,6 +123,27 @@ def test_key_normalization_rescues_decorated_keys_and_drops_garbage():
     # Garbage keys never enter the fact store.
     assert normalize_key("contracts/amendments") is None
     assert normalize_key("random_key") is None
+
+
+def test_latest_invoice_ordered_by_doc_date_not_period_text():
+    """Pinned to live-model behavior: Gemini returned invoice_period as
+    "June 2026"/"July 2026" — free text where "July" < "June" as a string —
+    and the register's "Latest invoice" line silently showed June. Ordering
+    must come from the validated document date, never model prose."""
+    from app.register import compose_entity_section
+
+    docs = {"inv6": _doc("inv6", "invoice", "2026-06-30"),
+            "inv7": _doc("inv7", "invoice", "2026-07-31")}
+    facts = [
+        _fact("f1", "inv6", "ClientCo", "invoice_period", "June 2026"),
+        _fact("f2", "inv6", "ClientCo", "billed_amount", "15300.00"),
+        _fact("f3", "inv7", "ClientCo", "invoice_period", "July 2026"),
+        _fact("f4", "inv7", "ClientCo", "billed_amount", "11760.00"),
+    ]
+    section = compose_entity_section("ClientCo", {}, facts, docs)
+    assert "July 2026" in section["content_md"]
+    assert "15300.00" not in section["content_md"], \
+        "the June invoice must not be presented as the latest"
 
 
 def test_playbook_detects_violations():

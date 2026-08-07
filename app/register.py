@@ -58,8 +58,13 @@ def compose_entity_section(entity: str, effective: dict, facts: list[dict],
             invoices.setdefault(f["doc_id"], {})[f["key"]] = f
     if invoices:
         def period(doc_id):
+            # Order by the document's validated ISO date, never by the
+            # model's free-text period ("July 2026" sorts before "June 2026"
+            # as a string). The period text is display, not ordering.
+            d = docs[doc_id].get("doc_date")
             p = invoices[doc_id].get("invoice_period")
-            return p["value"] if p else ""
+            return (d.isoformat() if d else "0000-00-00",
+                    p["value"] if p else "")
         latest_id = max(invoices, key=period)
         by_key = invoices[latest_id]
         parts, fact_ids = [], []

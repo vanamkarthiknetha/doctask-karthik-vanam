@@ -87,12 +87,21 @@ def reconcile(facts: list[dict], docs: dict[str, dict]) -> dict:
                 superseded.append((f["id"], winner["id"]))
 
     for f in facts:
-        counterpart = INVOICE_COUNTERPART.get(f["key"])
-        if not counterpart:
+        doc = docs.get(f["doc_id"])
+        if doc is None:
+            continue
+        if f["key"] in INVOICE_COUNTERPART:
+            counterpart = INVOICE_COUNTERPART[f["key"]]
+        elif f["key"] in CONTRACT_KEYS and doc["doc_class"] not in AUTHORITATIVE:
+            # A non-authoritative document restating a contract term under the
+            # contract key itself. Live models phrase an invoice's "terms:
+            # net-45" as payment_terms about as often as billed_terms — both
+            # spellings must hit the same comparison or the mismatch vanishes.
+            counterpart = f["key"]
+        else:
             continue
         eff = effective.get((f["entity"], counterpart))
         if eff and eff["value"] != f["value"]:
-            doc = docs[f["doc_id"]]
             eff_doc = docs[eff["doc_id"]]
             conflicts.append({
                 "entity": f["entity"], "key": counterpart,
@@ -102,4 +111,13 @@ def reconcile(facts: list[dict], docs: dict[str, dict]) -> dict:
                           f"is {eff['value']}",
             })
 
-    return {"effective": effective, "superseded": superseded, "conflicts": conflicts}
+    # One fact stated under both spellings must not raise twin conflicts.
+    seen: set[tuple] = set()
+    unique = []
+    for c in conflicts:
+        k = (c["entity"], c["key"], c["detail"])
+        if k not in seen:
+            seen.add(k)
+            unique.append(c)
+
+    return {"effective": effective, "superseded": superseded, "conflicts": unique}

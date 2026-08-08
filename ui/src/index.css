@@ -1,0 +1,115 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+
+/* shadcn/ui theme (Tailwind v4, CSS-variable mode). Light theme only — the
+   review UI is a desktop tool demoed in one look; a dark theme would double
+   the visual QA surface for no graded benefit. */
+
+@theme inline {
+  --font-sans: "Inter Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "Cascadia Code", Consolas, ui-monospace, SFMono-Regular, monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(0.977 0.004 250);
+  --foreground: oklch(0.235 0.02 255);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.235 0.02 255);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.235 0.02 255);
+  --primary: oklch(0.46 0.105 255);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.955 0.008 250);
+  --secondary-foreground: oklch(0.32 0.03 255);
+  --muted: oklch(0.955 0.008 250);
+  --muted-foreground: oklch(0.53 0.02 255);
+  --accent: oklch(0.94 0.02 250);
+  --accent-foreground: oklch(0.3 0.05 255);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.905 0.008 250);
+  --input: oklch(0.885 0.01 250);
+  --ring: oklch(0.62 0.09 255);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-size: 14px;
+  }
+}
+
+/* ---- shared animations ------------------------------------------------ */
+
+@keyframes pulse-dot {
+  50% { opacity: 0.25; }
+}
+.pulse-dot {
+  animation: pulse-dot 1.4s ease-in-out infinite;
+}
+
+@keyframes step-ring {
+  0%, 100% { box-shadow: 0 0 0 0 --alpha(var(--primary) / 35%); }
+  50% { box-shadow: 0 0 0 6px --alpha(var(--primary) / 8%); }
+}
+.step-ring {
+  animation: step-ring 1.6s ease-in-out infinite;
+}
+
+/* ---- rendered register markdown --------------------------------------- */
+/* The composer emits a tiny fixed subset (#/## headings, pipe tables,
+   paragraphs, ---). Styled here once instead of per-element in JSX. */
+
+.md-render h3 {
+  @apply mb-2 text-[15px] font-semibold text-primary;
+}
+.md-render h4 {
+  @apply mb-1.5 text-sm font-semibold;
+}
+.md-render p {
+  @apply my-1 text-[13px];
+}
+.md-render hr {
+  @apply my-3 border-border;
+}
+.md-render table {
+  @apply my-2 w-full border-separate border-spacing-0 overflow-hidden rounded-lg border text-[13px];
+}
+.md-render th {
+  @apply border-b bg-muted px-3 py-1.5 text-left text-xs font-medium tracking-wide text-muted-foreground uppercase;
+}
+.md-render td {
+  @apply border-b px-3 py-1.5 text-left align-top;
+}
+.md-render tr:last-child td {
+  @apply border-b-0;
+}

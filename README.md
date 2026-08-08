@@ -40,6 +40,14 @@ boundary falls back to a deterministic mock that replays recorded
 extractions for the bundled corpus, and document rendering is skipped with
 a logged decision.
 
+**What it looks like** — the human gate (left: every proposed change waits
+for an explicit decision) and the grounded register it produces (right:
+every value cites file + character range):
+
+| The review gate | The living register |
+|---|---|
+| ![Review gate](screenshots/review-gate.png) | ![Register](screenshots/report.png) |
+
 Optional keys (put them in `.env`, see `.env.example`):
 
 | Key | Enables | Notes |
@@ -249,9 +257,9 @@ anchors — the corpus cannot drift from the fixtures.
   prove something the hashes already prove. Two export-fidelity rough edges
   found on the way (inline-styles-only; `background-color` longhand) are
   handled in the renderer and reported in the parent project's bug log.
-- **The review UI shows register sections as monospace markdown**, not
-  rendered HTML — reviewers diff content; the styled artifact is the
-  exported docx/pdf.
+- **The review UI renders register sections as light headings and tables,
+  with the raw markdown one disclosure away** ("view raw text") — reviewers
+  diff exact content; the styled artifact is the exported docx/pdf.
 - **One active run per pile** (409 otherwise): updates queue in the watched
   folder rather than interleaving. Two *piles* run concurrently just fine.
 - **Rules upload is structured YAML, not freeform prose.** A pile can be
@@ -275,7 +283,7 @@ corpus/extra    the later amendment used for the focused-update demo
 rules/          the playbook (rules as data)
 scripts/        corpus generator, end-to-end demo driver
 tests/          the claims, tested without any live key
-ui/             React review UI (servable by the API at /ui)
+ui/             React review UI — Tailwind v4 + shadcn/ui (served at /ui)
 TASK.md         the task restated + behavior-by-behavior evidence
 PROGRESS.md     build log: assumptions and decisions as they were made
 ```

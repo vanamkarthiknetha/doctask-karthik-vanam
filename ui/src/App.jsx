@@ -1,5 +1,27 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import * as yaml from "js-yaml";
+import { toast } from "sonner";
+import {
+  Blocks, Check, CheckCheck, CircleAlert, CircleCheckBig, CirclePause, CloudUpload,
+  Copy, FileCode2, FilePen, FileSearch, Fingerprint, GitCompare, Info, PenLine,
+  Play, Plus, Printer, RotateCcw, Save, ScanText, SearchCheck, Tags, TriangleAlert,
+  Upload, X,
+} from "lucide-react";
+
+import { cn } from "@/lib/utils";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from "@/components/ui/table";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 
 // GET when no body/method; POST json when body given (pass {} for empty
 // POST); pass an explicit method to PUT/DELETE (body optional for DELETE).
@@ -18,11 +40,19 @@ const api = async (path, body, method) => {
   return r.json();
 };
 
-const SEV = { high: "#c0392b", medium: "#d68910", low: "#7f8c8d" };
-const SEV_ICON = { high: "🔴", medium: "🟠", low: "⚪" };
-const SEV_LABEL = { high: "High priority", medium: "Needs attention", low: "Minor note" };
 const fmtTime = (iso) => (iso || "").slice(11, 19);
 const fmtDate = (iso) => (iso || "").slice(0, 16).replace("T", " ");
+const fmtCompact = (n) =>
+  new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(n || 0);
+
+// Severity is always icon + label together, never color alone.
+const SEV_META = {
+  high: { Icon: CircleAlert, cls: "text-red-600", bg: "bg-red-50", label: "High priority" },
+  medium: { Icon: TriangleAlert, cls: "text-amber-600", bg: "bg-amber-50", label: "Needs attention" },
+  low: { Icon: Info, cls: "text-slate-500", bg: "bg-slate-100", label: "Minor note" },
+};
+const sevMeta = (s) =>
+  SEV_META[s] || { Icon: SearchCheck, cls: "text-muted-foreground", bg: "bg-muted", label: s };
 
 // ---------------------------------------------------------- plain-language helpers
 // The backend deals in snake_case keys, rule codes and stage/decision pairs —
@@ -167,17 +197,16 @@ const stripLeadingHeading = (text) => {
   }
   return lines.join("\n");
 };
-const FORMAT_ICON = { md: "📄", txt: "📄", html: "🌐", docx: "📝", pdf: "📕" };
 const STAGE_LABEL = {
   classify: "reading documents", extract: "pulling out facts",
   ground: "double-checking facts", reconcile: "comparing documents",
   compose: "drafting updates", examine: "checking your rules",
   propose: "preparing your review", commit: "saving decisions", render: "exporting",
 };
-const STAGE_ICON = {
-  classify: "🏷️", extract: "📤", ground: "✅",
-  reconcile: "🔀", compose: "✍️", examine: "🔍",
-  propose: "⏸️", commit: "💾", render: "🖨️",
+const STAGE_ICONS = {
+  classify: Tags, extract: ScanText, ground: CheckCheck,
+  reconcile: GitCompare, compose: PenLine, examine: SearchCheck,
+  propose: CirclePause, commit: Save, render: Printer,
 };
 
 function eventTone(decision) {
@@ -258,7 +287,8 @@ function describeEvent(e) {
 // Minimal renderer for the small, predictable markdown subset the register
 // composer emits (#/## headings, pipe tables, a closing "---", paragraphs).
 // Avoids pulling in a markdown dependency for content that never varies in
-// shape, and never touches innerHTML.
+// shape, and never touches innerHTML. Element styling lives under .md-render
+// in index.css.
 function Markdown({ text }) {
   if (!text) return null;
   const lines = text.replace(/\n$/, "").split("\n");
@@ -278,9 +308,9 @@ function Markdown({ text }) {
       const header = cells(rows[0]);
       const body = rows.slice(1).filter((r) => !isSep(r)).map(cells);
       blocks.push(body.length === 0
-        ? <p className="dim" key={i}>Nothing extracted yet.</p>
+        ? <p className="text-muted-foreground" key={i}>Nothing extracted yet.</p>
         : (
-          <table className="grid md-table" key={i}>
+          <table key={i}>
             <thead><tr>{header.map((h, k) => <th key={k}>{h}</th>)}</tr></thead>
             <tbody>{body.map((r, ri) => (
               <tr key={ri}>{r.map((c, ci) => <td key={ci}>{c}</td>)}</tr>
@@ -295,14 +325,113 @@ function Markdown({ text }) {
   return <div className="md-render">{blocks}</div>;
 }
 
-function Badge({ children, color = "#456" }) {
-  return <span className="badge" style={{ background: color }}>{children}</span>;
-}
+// ------------------------------------------------------------ small pieces
+
+const CHIP_TONES = {
+  live: "bg-primary/10 text-primary",
+  ok: "bg-emerald-100 text-emerald-700",
+  warn: "bg-amber-100 text-amber-700",
+  bad: "bg-red-100 text-red-700",
+  idle: "bg-muted text-muted-foreground",
+};
 
 function StatusChip({ status }) {
-  const cls = { running: "live", committing: "live", awaiting_review: "warn",
-                completed: "ok", failed: "bad" }[status] || "idle";
-  return <span className={`chip ${cls}`}><i />{STATUS_LABELS[status] || status}</span>;
+  const tone = { running: "live", committing: "live", awaiting_review: "warn",
+                 completed: "ok", failed: "bad" }[status] || "idle";
+  const pulse = tone === "live" || tone === "warn";
+  return (
+    <span className={cn(
+      "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold",
+      CHIP_TONES[tone])}>
+      <i className={cn("size-2 rounded-full bg-current", pulse && "pulse-dot")} />
+      {STATUS_LABELS[status] || status}
+    </span>
+  );
+}
+
+// Colored status word for dense table cells (chips would shout there).
+const STATUS_TONE = {
+  approved: "text-emerald-600", acknowledged: "text-emerald-600", analyzed: "text-emerald-600",
+  rejected: "text-red-600", quarantined: "text-red-600",
+  pending: "text-amber-600", open: "text-amber-600", new: "text-amber-600",
+};
+function StatusText({ status }) {
+  return (
+    <span className={cn("font-medium", STATUS_TONE[status] || "text-foreground/80")}>
+      {STATUS_LABELS[status] || status}
+    </span>
+  );
+}
+
+const ITEM_BADGE_TONES = {
+  approved: "bg-emerald-100 text-emerald-700",
+  acknowledged: "bg-emerald-100 text-emerald-700",
+  rejected: "bg-red-100 text-red-700",
+  pending: "bg-amber-100 text-amber-700",
+  open: "bg-amber-100 text-amber-700",
+  new: "bg-amber-100 text-amber-700",
+};
+function ItemStatusBadge({ status }) {
+  return (
+    <Badge className={cn("ml-auto border-transparent capitalize",
+      ITEM_BADGE_TONES[status] || "bg-secondary text-secondary-foreground")}>
+      {status}
+    </Badge>
+  );
+}
+
+function IconTile({ Icon, cls, bg }) {
+  return (
+    <span className={cn("grid size-8 shrink-0 place-items-center rounded-lg", bg || "bg-muted")}>
+      <Icon className={cn("size-4", cls)} />
+    </span>
+  );
+}
+
+function Disclosure({ summary, children, className }) {
+  return (
+    <details className={cn("mt-2", className)}>
+      <summary className="cursor-pointer text-xs font-semibold text-primary select-none hover:underline">
+        {summary}
+      </summary>
+      {children}
+    </details>
+  );
+}
+
+function Pre({ children, className }) {
+  return (
+    <pre className={cn(
+      "my-2 overflow-x-auto rounded-lg border bg-muted/50 p-2.5 font-mono text-xs whitespace-pre-wrap",
+      className)}>
+      {children}
+    </pre>
+  );
+}
+
+function EmptyState({ Icon, title, sub, tone }) {
+  return (
+    <div className="my-3 flex flex-col items-center gap-2 rounded-xl border border-dashed bg-card/60 px-6 py-12 text-center">
+      <span className={cn("grid size-12 place-items-center rounded-full",
+        tone === "ok" ? "bg-emerald-100" : "bg-muted")}>
+        <Icon className={cn("size-6", tone === "ok" ? "text-emerald-600" : "text-muted-foreground")} />
+      </span>
+      <b className="text-sm">{title}</b>
+      {sub && <p className="max-w-md text-sm text-muted-foreground">{sub}</p>}
+    </div>
+  );
+}
+
+function StatTile({ label, value, sub, accent }) {
+  return (
+    <Card className="gap-1 px-4 py-4">
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      <span className={cn("text-2xl font-semibold tracking-tight", accent && "text-primary")}>
+        {value}
+      </span>
+      {sub && <span className="text-xs text-muted-foreground">{sub}</span>}
+    </Card>
+  );
 }
 
 // ---------------------------------------------------------------- pipeline map
@@ -324,7 +453,7 @@ function Stepper({ run, docsCount, pending }) {
   const lastEvent = run && run.events.length
     ? run.events[run.events.length - 1] : null;
   return (
-    <div className="stepper">
+    <div className="mt-4 mb-1 flex flex-wrap">
       {STEPS.map((s, i) => {
         const state = i < active ? "done" : i === active ? "active" : "todo";
         let sub = s.sub;
@@ -334,13 +463,26 @@ function Stepper({ run, docsCount, pending }) {
         }
         if (i === 2 && state === "active") sub = `${pending} item(s) waiting for you`;
         return (
-          <div className={`step ${state}`} key={s.label}>
-            <div className="dot">{state === "done" ? "✓" : i + 1}</div>
-            <div className="step-txt">
-              <b>{s.label}</b>
-              <span>{sub}</span>
+          <div className="flex min-w-[45%] flex-1 items-center py-1 sm:min-w-[150px]" key={s.label}>
+            <div className={cn(
+              "grid size-8 shrink-0 place-items-center rounded-full border-2 text-[13px] font-bold",
+              state === "done" && "border-emerald-600 bg-emerald-600 text-white",
+              state === "active" && "step-ring border-primary bg-card text-primary",
+              state === "todo" && "border-transparent bg-secondary text-muted-foreground")}>
+              {state === "done" ? <Check className="size-4" /> : i + 1}
             </div>
-            {i < STEPS.length - 1 && <div className="conn" />}
+            <div className="ml-2.5 min-w-0 leading-tight">
+              <b className={cn("block text-[13px]", state === "active" && "text-primary")}>
+                {s.label}
+              </b>
+              <span className="block max-w-[165px] truncate text-[11px] text-muted-foreground">
+                {sub}
+              </span>
+            </div>
+            {i < STEPS.length - 1 && (
+              <div className={cn("mx-2.5 hidden h-0.5 flex-1 sm:block",
+                state === "done" ? "bg-emerald-200" : "bg-border")} />
+            )}
           </div>
         );
       })}
@@ -352,16 +494,24 @@ function Stepper({ run, docsCount, pending }) {
 function itemHeadline(item) {
   const p = item.payload;
   if (item.item_type === "section_update") {
-    return { icon: "📝", title: `Update: ${p.title}`,
+    return { Icon: FilePen, cls: "text-primary", bg: "bg-primary/10",
+             title: `Update: ${p.title}`,
              sub: `Why: ${REASON_LABELS[p.reason] || p.reason || "content changed"}` };
   }
   if (item.item_type === "conflict") {
-    return { icon: "⚠️", title: `Disagreement: ${p.entity}`,
-             sub: humanizeKey(p.key) };
+    return { Icon: TriangleAlert, cls: "text-amber-600", bg: "bg-amber-50",
+             title: `Disagreement: ${p.entity}`, sub: humanizeKey(p.key) };
   }
-  return { icon: SEV_ICON[p.severity] || "🔍", title: ruleTitle(p.rule_id),
-           sub: `${SEV_LABEL[p.severity] || p.severity}${p.entity ? ` · ${p.entity}` : ""}` };
+  const sev = sevMeta(p.severity);
+  return { Icon: sev.Icon, cls: sev.cls, bg: sev.bg, title: ruleTitle(p.rule_id),
+           sub: `${sev.label}${p.entity ? ` · ${p.entity}` : ""}` };
 }
+
+const CARD_EDGE = {
+  pending: "border-l-4 border-l-amber-400",
+  approved: "border-l-4 border-l-emerald-500",
+  rejected: "border-l-4 border-l-red-400 opacity-70",
+};
 
 function ItemCard({ item, onDecide }) {
   const [feedback, setFeedback] = useState("");
@@ -369,94 +519,125 @@ function ItemCard({ item, onDecide }) {
   const decided = item.status !== "pending";
   const h = itemHeadline(item);
   return (
-    <div className={`card item-card ${item.status}`}>
-      <div className="card-head">
-        <span className="item-icon" aria-hidden="true">{h.icon}</span>
-        <div className="item-title">
-          <b>{h.title}</b>
-          <span className="dim">{h.sub}</span>
+    <Card className={cn("my-2.5 gap-2", CARD_EDGE[item.status])}>
+      <CardHeader className="flex-nowrap items-start">
+        <IconTile Icon={h.Icon} cls={h.cls} bg={h.bg} />
+        <div className="min-w-0 leading-snug">
+          <b className="block text-[14.5px]">{h.title}</b>
+          <span className="text-xs text-muted-foreground">{h.sub}</span>
         </div>
-        <span className={`status ${item.status}`}>{item.status}</span>
-      </div>
+        <ItemStatusBadge status={item.status} />
+      </CardHeader>
+      <CardContent>
+        {item.item_type === "section_update" && (
+          <>
+            <Markdown text={stripLeadingHeading(p.content_md)} />
+            <Disclosure summary="View raw text (for exact diffing)">
+              <Pre>{p.content_md}</Pre>
+            </Disclosure>
+          </>
+        )}
+        {item.item_type === "conflict" && <p className="text-sm">{humanizeText(p.detail)}</p>}
+        {item.item_type === "finding" && (
+          <>
+            <p className="text-sm">{humanizeText(p.message)}</p>
+            {p.quote && (
+              <blockquote className="my-2 rounded-r-lg border-l-2 bg-muted/50 px-3 py-1.5 text-sm text-muted-foreground italic">
+                “{p.quote}”
+              </blockquote>
+            )}
+            <p className="mt-1.5 font-mono text-[11px] text-muted-foreground">rule {p.rule_id}</p>
+          </>
+        )}
 
-      {item.item_type === "section_update" && (
-        <>
-          <div className="md-preview"><Markdown text={stripLeadingHeading(p.content_md)} /></div>
-          <details className="raw-toggle">
-            <summary>View raw text (for exact diffing)</summary>
-            <pre className="md">{p.content_md}</pre>
-          </details>
-        </>
-      )}
-      {item.item_type === "conflict" && <p>{humanizeText(p.detail)}</p>}
-      {item.item_type === "finding" && (
-        <>
-          <p>{humanizeText(p.message)}</p>
-          {p.quote && <blockquote className="evidence">“{p.quote}”</blockquote>}
-          <p className="dim rule-tag">rule {p.rule_id}</p>
-        </>
-      )}
-
-      {!decided && (
-        <div className="actions">
-          <input placeholder="Add a note (optional)" value={feedback}
-                 onChange={(e) => setFeedback(e.target.value)} />
-          <button className="approve"
-                  onClick={() => onDecide(item.id, true, feedback)}>✓ Approve</button>
-          <button className="reject"
-                  onClick={() => onDecide(item.id, false, feedback)}>✗ Reject</button>
-        </div>
-      )}
-      {decided && item.feedback && <p className="dim">Note: {item.feedback}</p>}
-    </div>
+        {!decided && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Input className="h-8 min-w-[180px] flex-1" placeholder="Add a note (optional)"
+                   value={feedback} onChange={(e) => setFeedback(e.target.value)} />
+            <Button size="sm" variant="success"
+                    onClick={() => onDecide(item.id, true, feedback)}>
+              <Check /> Approve
+            </Button>
+            <Button size="sm" variant="destructive"
+                    onClick={() => onDecide(item.id, false, feedback)}>
+              <X /> Reject
+            </Button>
+          </div>
+        )}
+        {decided && item.feedback && (
+          <p className="mt-2 text-sm text-muted-foreground">Note: {item.feedback}</p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
 function DraftRuleCard({ rule, onDelete }) {
   const def = CHECK_DEFS[rule.check];
+  const sev = sevMeta(rule.severity);
   return (
-    <div className="card item-card">
-      <div className="card-head">
-        <span className="item-icon" aria-hidden="true">{SEV_ICON[rule.severity] || "🔍"}</span>
-        <div className="item-title">
-          <b>{RULE_TITLES[rule.id] || rule.description}</b>
-          <span className="dim">
-            {SEV_LABEL[rule.severity] || rule.severity} · {rule._stage}
+    <Card className="gap-1.5 py-3">
+      <CardHeader className="flex-nowrap items-start">
+        <IconTile Icon={sev.Icon} cls={sev.cls} bg={sev.bg} />
+        <div className="min-w-0 leading-snug">
+          <b className="block text-sm">{RULE_TITLES[rule.id] || rule.description}</b>
+          <span className="text-xs text-muted-foreground">
+            {sev.label} · {rule._stage}
           </span>
         </div>
-        <button className="ghost" style={{ marginLeft: "auto" }} title="Remove this rule"
-                onClick={() => onDelete(rule._stage, rule.id)}>✕</button>
-      </div>
-      <p className="dim">{def ? def.describe(rule) : `unrecognized check: ${rule.check}`}</p>
-    </div>
+        <Button size="icon-sm" variant="ghost" className="ml-auto"
+                title="Remove this rule"
+                onClick={() => onDelete(rule._stage, rule.id)}>
+          <X />
+        </Button>
+      </CardHeader>
+      <CardContent>
+        <p className="text-sm text-muted-foreground">
+          {def ? def.describe(rule) : `unrecognized check: ${rule.check}`}
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 
+const EVENT_TONES = {
+  bad: { tile: "bg-red-50", icon: "text-red-600", text: "text-red-700" },
+  warn: { tile: "bg-amber-50", icon: "text-amber-600", text: "text-amber-700" },
+  ok: { tile: "bg-muted", icon: "text-muted-foreground", text: "" },
+};
+
 function Activity({ events }) {
   return (
-    <div className="activity">
+    <Card className="my-2 gap-0 py-1">
       {events.map((e, i) => {
         const plain = describeEvent(e);
-        const tone = eventTone(e.decision);
+        const tone = EVENT_TONES[eventTone(e.decision)];
         const stage = e.stage.split(":")[0];
+        const StageIcon = STAGE_ICONS[stage] || SearchCheck;
         return (
-          <div className={`activity-row ${tone}`} key={i}>
-            <span className="activity-icon" aria-hidden="true">{STAGE_ICON[stage] || "•"}</span>
-            <div className="activity-body">
-              <div className="activity-line">
-                <b>{plain || `${e.stage} — ${e.decision}`}</b>
-                <span className="dim mono">{fmtTime(e.ts)}</span>
+          <div className={cn("flex gap-3 px-4 py-2.5", i > 0 && "border-t")} key={i}>
+            <span className={cn("mt-0.5 grid size-7 shrink-0 place-items-center rounded-md", tone.tile)}>
+              <StageIcon className={cn("size-3.5", tone.icon)} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-baseline justify-between gap-3">
+                <b className={cn("text-[13.5px] font-semibold", tone.text)}>
+                  {plain || `${e.stage} — ${e.decision}`}
+                </b>
+                <span className="font-mono text-xs text-muted-foreground">{fmtTime(e.ts)}</span>
               </div>
-              {!plain && <span className="dim">stage: {e.stage}</span>}
+              {!plain && <span className="text-xs text-muted-foreground">stage: {e.stage}</span>}
               <details>
-                <summary className="dim">technical detail</summary>
-                <pre className="md small">{JSON.stringify(e.detail, null, 2)}</pre>
+                <summary className="cursor-pointer text-xs text-muted-foreground select-none hover:text-primary">
+                  technical detail
+                </summary>
+                <Pre className="text-[11px]">{JSON.stringify(e.detail, null, 2)}</Pre>
               </details>
             </div>
           </div>
         );
       })}
-    </div>
+    </Card>
   );
 }
 
@@ -504,20 +685,14 @@ export default function App() {
     return TABS.includes(h) ? h : "documents";
   });
   const [error, setError] = useState("");
-  const [toast, setToast] = useState("");
   const [busy, setBusy] = useState(false);
   const [newPile, setNewPile] = useState("");
   const [creating, setCreating] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const prevStatus = useRef({});
   const fileInput = useRef(null);
-  const toastTimer = useRef(null);
 
-  const say = (msg) => {
-    setToast(msg);
-    clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(""), 4000);
-  };
+  const say = (msg) => toast(msg);
 
   const refresh = useCallback(async () => {
     try {
@@ -750,163 +925,224 @@ export default function App() {
   // ------------------------------------------------------------- render
   if (piles && piles.length === 0) {
     return (
-      <div className="wrap">
+      <div className="mx-auto max-w-[1180px] px-4 pb-16">
         <Header health={health} />
-        <div className="hero card">
-          <h2>Welcome — create your first pile</h2>
-          <p className="dim">
-            A <b>pile</b> is an isolated set of documents (contracts, amendments,
-            invoices) that the analyst turns into a living obligations register.
+        <Card className="mx-auto mt-16 max-w-[560px] gap-2 px-7 py-7">
+          <h2 className="text-lg font-semibold">Welcome — create your first pile</h2>
+          <p className="text-sm text-muted-foreground">
+            A <b className="text-foreground">pile</b> is an isolated set of documents
+            (contracts, amendments, invoices) that the analyst turns into a living
+            obligations register.
           </p>
-          <div className="actions">
-            <input autoFocus placeholder="pile name, e.g. meridian-clients"
+          <div className="mt-3 flex gap-2">
+            <Input autoFocus placeholder="pile name, e.g. meridian-clients"
                    value={newPile} onChange={(e) => setNewPile(e.target.value)}
                    onKeyDown={(e) => e.key === "Enter" && createPile()} />
-            <button className="primary" onClick={createPile}>Create pile</button>
+            <Button onClick={createPile}>Create pile</Button>
           </div>
-        </div>
-        {error && <div className="error">{error}</div>}
+        </Card>
+        {error && <ErrorBanner error={error} onDismiss={() => setError("")} />}
       </div>
     );
   }
 
   return (
-    <div className="wrap">
+    <div className="mx-auto max-w-[1180px] px-4 pb-16">
       <Header health={health} />
 
       {/* ------------------------------------------------ control bar */}
-      <div className="controls card">
-        <div className="ctl-group">
-          <label title="A pile is an isolated set of related documents.">Pile</label>
+      <Card className="flex-row flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3">
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-bold tracking-wider text-muted-foreground uppercase"
+                title="A pile is an isolated set of related documents.">
+            Pile
+          </span>
           {creating ? (
-            <span className="newpile">
-              <input autoFocus placeholder="new pile name" value={newPile}
+            <span className="flex items-center gap-1.5">
+              <Input autoFocus className="h-8 w-44" placeholder="new pile name" value={newPile}
                      onChange={(e) => setNewPile(e.target.value)}
                      onKeyDown={(e) => e.key === "Enter" && createPile()} />
-              <button className="primary" onClick={createPile}>Create</button>
-              <button className="ghost" onClick={() => setCreating(false)}>✕</button>
+              <Button size="sm" onClick={createPile}>Create</Button>
+              <Button size="icon-sm" variant="ghost" onClick={() => setCreating(false)}>
+                <X />
+              </Button>
             </span>
           ) : (
             <>
-              <select value={pileId || ""}
-                      onChange={(e) => {
-                        setPileId(e.target.value);
+              <Select value={pileId ?? undefined}
+                      onValueChange={(v) => {
+                        setPileId(v);
                         setRunSel({ id: null, manual: false });
                         setRulesDirty(false);
                       }}>
-                {(piles || []).map((p) =>
-                  <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-              <button className="ghost" title="Create a new pile"
-                      onClick={() => setCreating(true)}>+ New pile</button>
+                <SelectTrigger size="sm" className="w-44">
+                  <SelectValue placeholder="select a pile" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(piles || []).map((p) =>
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Button size="sm" variant="outline" title="Create a new pile"
+                      onClick={() => setCreating(true)}>
+                <Plus /> New pile
+              </Button>
             </>
           )}
         </div>
 
-        <div className="ctl-group grow">
-          <button className="ghost" disabled={busy}
+        <div className="flex flex-1 items-center justify-center gap-2">
+          <Button size="sm" variant="outline" disabled={busy}
                   onClick={() => fileInput.current.click()}>
-            ⬆ Upload documents
-          </button>
+            <Upload /> Upload documents
+          </Button>
           <input ref={fileInput} type="file" multiple hidden
                  accept=".md,.txt,.html,.docx,.pdf"
                  onChange={(e) => { uploadFiles([...e.target.files]); e.target.value = ""; }} />
-          <button className="primary" disabled={busy || !docs.length || !!activeRun}
+          <Button size="sm" disabled={busy || !docs.length || !!activeRun}
                   title={!docs.length ? "Add documents first"
                         : activeRun ? "A run is already in progress" : ""}
                   onClick={startRun}>
-            ▶ Run analysis
-          </button>
+            <Play /> Run analysis
+          </Button>
         </div>
 
-        <div className="ctl-group">
-          <label>Run</label>
-          <select value={runSel.id || ""}
-                  onChange={(e) => setRunSel({ id: e.target.value, manual: true })}>
-            {!runs.length && <option value="">no runs yet</option>}
-            {[...runs].reverse().map((r) => (
-              <option key={r.id} value={r.id}>
-                {RUN_KIND_LABELS[r.kind] || r.kind} · {fmtDate(r.started_at)} · {RUN_STATUS_SHORT[r.status] || r.status}
-              </option>
-            ))}
-          </select>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-bold tracking-wider text-muted-foreground uppercase">
+            Run
+          </span>
+          {runs.length ? (
+            <Select value={runSel.id ?? undefined}
+                    onValueChange={(v) => setRunSel({ id: v, manual: true })}>
+              <SelectTrigger size="sm" className="max-w-95">
+                <SelectValue placeholder="select a run" />
+              </SelectTrigger>
+              <SelectContent>
+                {[...runs].reverse().map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {RUN_KIND_LABELS[r.kind] || r.kind} · {fmtDate(r.started_at)} · {RUN_STATUS_SHORT[r.status] || r.status}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Select disabled>
+              <SelectTrigger size="sm">
+                <SelectValue placeholder="no runs yet" />
+              </SelectTrigger>
+            </Select>
+          )}
           {run && <StatusChip status={run.status} />}
         </div>
-      </div>
+      </Card>
 
       <Stepper run={run} docsCount={docs.length} pending={pending} />
 
-      {error && <div className="error" onClick={() => setError("")}>{error}</div>}
-      {toast && <div className="toast">{toast}</div>}
+      {error && <ErrorBanner error={error} onDismiss={() => setError("")} />}
       {run && run.status === "failed" && (
-        <div className="error">Run failed: {run.error}</div>
+        <Alert variant="destructive" className="my-2">
+          <CircleAlert />
+          <AlertTitle>Run failed</AlertTitle>
+          <AlertDescription>{run.error}</AlertDescription>
+        </Alert>
       )}
 
-      <nav>
-        {TABS.map((t) => (
-          <button key={t}
-                  className={(tab === t ? "active" : "")
-                    + (t === "review" && pending > 0 ? " attention" : "")}
-                  onClick={() => setTab(t)}>
-            {t === "documents" ? `${TAB_LABELS[t]} (${docs.length})`
-              : t === "review" && pending > 0 ? `${TAB_LABELS[t]} (${pending})` : TAB_LABELS[t]}
-          </button>
-        ))}
-      </nav>
-      <p className="dim tab-caption">{TAB_CAPTIONS[tab]}</p>
+      <Tabs value={tab} onValueChange={setTab} className="mt-4">
+        <TabsList className="h-auto w-full justify-start overflow-x-auto">
+          {TABS.map((t) => (
+            <TabsTrigger key={t} value={t} className="gap-1.5 px-3 py-1.5">
+              {TAB_LABELS[t]}
+              {t === "documents" && (
+                <Badge variant="secondary" className="h-4 min-w-4 px-1 text-[10px]">
+                  {docs.length}
+                </Badge>
+              )}
+              {t === "review" && pending > 0 && (
+                <Badge className="pulse-dot h-4 min-w-4 border-transparent bg-amber-500 px-1 text-[10px] text-white">
+                  {pending}
+                </Badge>
+              )}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+      <p className="mt-2 mb-2 text-sm text-muted-foreground">{TAB_CAPTIONS[tab]}</p>
 
       {/* ------------------------------------------------ documents tab */}
       {tab === "documents" && (
         <section>
-          <div className={`dropzone ${dragOver ? "over" : ""}`}
+          <div className={cn(
+                 "my-3 cursor-pointer rounded-xl border-2 border-dashed bg-card p-7 text-center transition-colors",
+                 dragOver ? "border-primary bg-accent"
+                          : "border-input hover:border-primary/60 hover:bg-accent/50")}
                onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                onDragLeave={() => setDragOver(false)}
                onDrop={onDrop}
                onClick={() => fileInput.current.click()}>
+            <CloudUpload className="mx-auto mb-2 size-8 text-muted-foreground" />
             <b>Drop files here</b> or click to browse
-            <span className="dim"> — md · txt · html · docx · pdf</span>
+            <div className="mt-1 text-sm text-muted-foreground">md · txt · html · docx · pdf</div>
           </div>
           {docs.length === 0 && sampleSets.length > 0 && (
-            <div className="card samples">
-              <b>…or try the bundled sample corpus</b>
-              <p className="dim">
-                Fictional voice-AI vendor "Meridian Voice Systems": client
-                contracts, amendments and invoices with planted conflicts,
-                a compliance breach and a prompt-injection attempt.
-              </p>
-              <div className="actions">
-                {sampleSets.map((s) => (
-                  <button key={s.name} disabled={busy}
-                          className={s.name === "seed" ? "primary" : "ghost"}
-                          onClick={() => loadSamples(s.name)}>
-                    Load "{s.name}" ({s.files.length} files)
-                  </button>
-                ))}
-              </div>
-            </div>
+            <Card className="gap-1.5">
+              <CardHeader><CardTitleText>…or try the bundled sample corpus</CardTitleText></CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">
+                  Fictional voice-AI vendor "Meridian Voice Systems": client
+                  contracts, amendments and invoices with planted conflicts,
+                  a compliance breach and a prompt-injection attempt.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {sampleSets.map((s) => (
+                    <Button key={s.name} size="sm" disabled={busy}
+                            variant={s.name === "seed" ? "default" : "outline"}
+                            onClick={() => loadSamples(s.name)}>
+                      Load "{s.name}" ({s.files.length} files)
+                    </Button>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
           )}
           {docs.length > 0 && (
-            <table className="grid">
-              <thead><tr><th>file</th><th>format</th><th>class</th>
-                <th>client</th><th>status</th><th></th></tr></thead>
-              <tbody>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>file</TableHead><TableHead>format</TableHead>
+                  <TableHead>class</TableHead><TableHead>client</TableHead>
+                  <TableHead>status</TableHead><TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {docs.map((d) => (
-                  <tr key={d.id}>
-                    <td>{d.filename}</td>
-                    <td>{FORMAT_ICON[d.format] || ""} {d.format}</td>
-                    <td>{d.doc_class || <span className="dim">pending analysis</span>}</td>
-                    <td>{d.entity || ""}</td>
-                    <td><span className={`status ${d.status}`}>{STATUS_LABELS[d.status] || d.status}</span></td>
-                    <td>{d.injection_flagged &&
-                      <Badge color="#b03a2e">⚠ injection flagged</Badge>}</td>
-                  </tr>
+                  <TableRow key={d.id}>
+                    <TableCell className="font-medium">{d.filename}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="px-1.5 font-mono text-[10px] uppercase">
+                        {d.format}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {d.doc_class || <span className="text-muted-foreground">pending analysis</span>}
+                    </TableCell>
+                    <TableCell>{d.entity || ""}</TableCell>
+                    <TableCell><StatusText status={d.status} /></TableCell>
+                    <TableCell>
+                      {d.injection_flagged && (
+                        <Badge variant="destructive"><TriangleAlert /> injection flagged</Badge>
+                      )}
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           )}
           {pile && (
-            <p className="dim hint">
-              Watched folder: files dropped into <code>corpus/incoming/{pile.name}/</code>{" "}
+            <p className="mt-4 text-sm text-muted-foreground">
+              Watched folder: files dropped into{" "}
+              <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+                corpus/incoming/{pile.name}/
+              </code>{" "}
               are ingested automatically as focused update runs — no clicks needed.
             </p>
           )}
@@ -917,134 +1153,159 @@ export default function App() {
       {tab === "rules" && (
         <section>
           {rules && (
-            <div className="card">
-              <div className="card-head">
-                <b>Active playbook</b>
-                <span className={`chip ${rules.source === "pile" ? "live" : "idle"}`}>
-                  <i />{rules.source === "pile" ? "your rules" : "system default"}
+            <Card className="gap-2">
+              <CardHeader>
+                <CardTitleText>Active playbook</CardTitleText>
+                <span className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold",
+                  rules.source === "pile" ? CHIP_TONES.live : CHIP_TONES.idle)}>
+                  <i className="size-2 rounded-full bg-current" />
+                  {rules.source === "pile" ? "your rules" : "system default"}
                 </span>
-                <span className="dim">
+                <span className="text-sm text-muted-foreground">
                   {rules.rule_count} rule(s) across {rules.stages.length} stage(s)
                 </span>
-                <span className="rules-mode-toggle" style={{ marginLeft: "auto" }}>
-                  <button className={rulesMode === "builder" ? "primary" : "ghost"}
-                          onClick={switchToBuilderMode}>🧩 Builder</button>
-                  <button className={rulesMode === "yaml" ? "primary" : "ghost"}
-                          onClick={switchToYamlMode}>📝 Raw YAML</button>
+                <span className="ml-auto inline-flex items-center gap-0.5 rounded-lg bg-muted p-[3px]">
+                  <button className={segCls(rulesMode === "builder")} onClick={switchToBuilderMode}>
+                    <Blocks className="size-3.5" /> Builder
+                  </button>
+                  <button className={segCls(rulesMode === "yaml")} onClick={switchToYamlMode}>
+                    <FileCode2 className="size-3.5" /> Raw YAML
+                  </button>
                 </span>
-              </div>
-              <p className="dim">
-                Hand this pile a compliance checklist, a contract playbook,
-                or a style guide — as rules — and every run against it is
-                examined against YOUR rules, not a shared default. Build
-                rules below with plain-English fields; the YAML underneath
-                (always visible, never required reading) is exactly what
-                gets saved. Each rule names one of the checks the engine
-                actually implements — an unknown check is refused with the
-                specific reason, not silently ignored.
-              </p>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">
+                  Hand this pile a compliance checklist, a contract playbook,
+                  or a style guide — as rules — and every run against it is
+                  examined against YOUR rules, not a shared default. Build
+                  rules below with plain-English fields; the YAML underneath
+                  (always visible, never required reading) is exactly what
+                  gets saved. Each rule names one of the checks the engine
+                  actually implements — an unknown check is refused with the
+                  specific reason, not silently ignored.
+                </p>
 
-              {rulesMode === "builder" ? (
-                <>
-                  <div className="rule-cards">
-                    {playbookToRuleList(rulesDraftObj).map((r) => (
-                      <DraftRuleCard key={`${r._stage}:${r.id}`} rule={r} onDelete={deleteRule} />
-                    ))}
-                    {playbookToRuleList(rulesDraftObj).length === 0 && (
-                      <p className="dim">No rules yet — add one below.</p>
-                    )}
-                  </div>
-
-                  <div className="card rule-add-form">
-                    <b>Add a rule</b>
-                    <div className="rule-add-grid">
-                      <label>
-                        <span className="dim">Check type</span>
-                        <select value={newRule.check}
-                                onChange={(e) => {
-                                  const check = e.target.value;
-                                  setNewRule({ ...NEW_RULE_DEFAULTS, check,
-                                    key: CHECK_DEFS[check].defaultKey || "" });
-                                }}>
-                          {Object.entries(CHECK_DEFS).map(([k, d]) =>
-                            <option key={k} value={k}>{d.label}</option>)}
-                        </select>
-                      </label>
-                      {CHECK_DEFS[newRule.check].fields.includes("key") && (
-                        <label>
-                          <span className="dim">{FIELD_LABELS.key}</span>
-                          <select value={newRule.key}
-                                  onChange={(e) => setNewRule({ ...newRule, key: e.target.value })}>
-                            {KNOWN_FACT_KEYS.map((k) =>
-                              <option key={k} value={k}>{humanizeKey(k)}</option>)}
-                          </select>
-                        </label>
+                {rulesMode === "builder" ? (
+                  <>
+                    <div className="my-3 flex flex-col gap-2">
+                      {playbookToRuleList(rulesDraftObj).map((r) => (
+                        <DraftRuleCard key={`${r._stage}:${r.id}`} rule={r} onDelete={deleteRule} />
+                      ))}
+                      {playbookToRuleList(rulesDraftObj).length === 0 && (
+                        <p className="text-sm text-muted-foreground">No rules yet — add one below.</p>
                       )}
-                      {["max", "min", "max_days", "tolerance"]
-                        .filter((f) => CHECK_DEFS[newRule.check].fields.includes(f))
-                        .map((f) => (
-                          <label key={f}>
-                            <span className="dim">{FIELD_LABELS[f]}</span>
-                            <input type="number" step={f === "tolerance" ? "0.01" : "1"}
-                                   placeholder={f === "tolerance" ? "0.01 (optional)" : ""}
-                                   value={newRule[f]}
-                                   onChange={(e) => setNewRule({ ...newRule, [f]: e.target.value })} />
-                          </label>
-                        ))}
-                      <label>
-                        <span className="dim">Severity</span>
-                        <select value={newRule.severity}
-                                onChange={(e) => setNewRule({ ...newRule, severity: e.target.value })}>
-                          <option value="high">High</option>
-                          <option value="medium">Medium</option>
-                          <option value="low">Low</option>
-                        </select>
-                      </label>
-                      <label className="rule-add-desc">
-                        <span className="dim">Description (optional — auto-filled if left blank)</span>
-                        <input value={newRule.description}
-                               placeholder={CHECK_DEFS[newRule.check].describe(newRule)}
-                               onChange={(e) => setNewRule({ ...newRule, description: e.target.value })} />
-                      </label>
                     </div>
-                    <p className="dim" style={{ margin: "4px 0" }}>
-                      {CHECK_DEFS[newRule.check].hint}
-                    </p>
-                    <button className="primary" disabled={!ruleFieldReady()} onClick={addRule}>
-                      + Add rule
-                    </button>
-                  </div>
 
-                  <details className="raw-toggle">
-                    <summary>view generated YAML (read-only)</summary>
-                    <pre className="md small">{rulesDraft}</pre>
-                  </details>
-                </>
-              ) : (
-                <>
-                  {rulesParseError && (
-                    <p className="error">
-                      Couldn't read this as rule cards: {rulesParseError}. Fix
-                      the YAML below, or your edits still save as-is.
-                    </p>
-                  )}
-                  <textarea className="rules-editor mono" rows={18} spellCheck={false}
-                            value={rulesDraft}
-                            onChange={(e) => { setRulesDraft(e.target.value); setRulesDirty(true); }} />
-                </>
-              )}
+                    <Card className="my-3 gap-2 bg-muted/40 shadow-none">
+                      <CardHeader><CardTitleText>Add a rule</CardTitleText></CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-3">
+                          <label className="flex flex-col gap-1 text-xs">
+                            <span className="text-muted-foreground">Check type</span>
+                            <Select value={newRule.check}
+                                    onValueChange={(check) => {
+                                      setNewRule({ ...NEW_RULE_DEFAULTS, check,
+                                        key: CHECK_DEFS[check].defaultKey || "" });
+                                    }}>
+                              <SelectTrigger size="sm" className="w-full">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {Object.entries(CHECK_DEFS).map(([k, d]) =>
+                                  <SelectItem key={k} value={k}>{d.label}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
+                          </label>
+                          {CHECK_DEFS[newRule.check].fields.includes("key") && (
+                            <label className="flex flex-col gap-1 text-xs">
+                              <span className="text-muted-foreground">{FIELD_LABELS.key}</span>
+                              <Select value={newRule.key}
+                                      onValueChange={(k) => setNewRule({ ...newRule, key: k })}>
+                                <SelectTrigger size="sm" className="w-full">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {KNOWN_FACT_KEYS.map((k) =>
+                                    <SelectItem key={k} value={k}>{humanizeKey(k)}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                            </label>
+                          )}
+                          {["max", "min", "max_days", "tolerance"]
+                            .filter((f) => CHECK_DEFS[newRule.check].fields.includes(f))
+                            .map((f) => (
+                              <label key={f} className="flex flex-col gap-1 text-xs">
+                                <span className="text-muted-foreground">{FIELD_LABELS[f]}</span>
+                                <Input type="number" className="h-8"
+                                       step={f === "tolerance" ? "0.01" : "1"}
+                                       placeholder={f === "tolerance" ? "0.01 (optional)" : ""}
+                                       value={newRule[f]}
+                                       onChange={(e) => setNewRule({ ...newRule, [f]: e.target.value })} />
+                              </label>
+                            ))}
+                          <label className="flex flex-col gap-1 text-xs">
+                            <span className="text-muted-foreground">Severity</span>
+                            <Select value={newRule.severity}
+                                    onValueChange={(s) => setNewRule({ ...newRule, severity: s })}>
+                              <SelectTrigger size="sm" className="w-full">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="high">High</SelectItem>
+                                <SelectItem value="medium">Medium</SelectItem>
+                                <SelectItem value="low">Low</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </label>
+                          <label className="col-span-full flex flex-col gap-1 text-xs">
+                            <span className="text-muted-foreground">
+                              Description (optional — auto-filled if left blank)
+                            </span>
+                            <Input className="h-8" value={newRule.description}
+                                   placeholder={CHECK_DEFS[newRule.check].describe(newRule)}
+                                   onChange={(e) => setNewRule({ ...newRule, description: e.target.value })} />
+                          </label>
+                        </div>
+                        <p className="my-2 text-xs text-muted-foreground">
+                          {CHECK_DEFS[newRule.check].hint}
+                        </p>
+                        <Button size="sm" disabled={!ruleFieldReady()} onClick={addRule}>
+                          <Plus /> Add rule
+                        </Button>
+                      </CardContent>
+                    </Card>
 
-              <div className="actions">
-                <button className="primary" disabled={rulesBusy || !rulesDirty}
-                        onClick={saveRules}>
-                  💾 Save rules for this pile
-                </button>
-                <button className="ghost" disabled={rulesBusy || rules.source !== "pile"}
-                        onClick={resetRules}>
-                  ↺ Reset to system default
-                </button>
-              </div>
-            </div>
+                    <Disclosure summary="view generated YAML (read-only)">
+                      <Pre className="text-[11px]">{rulesDraft}</Pre>
+                    </Disclosure>
+                  </>
+                ) : (
+                  <>
+                    {rulesParseError && (
+                      <p className="my-2 text-sm text-destructive">
+                        Couldn't read this as rule cards: {rulesParseError}. Fix
+                        the YAML below, or your edits still save as-is.
+                      </p>
+                    )}
+                    <Textarea className="my-2 font-mono text-xs" rows={18} spellCheck={false}
+                              value={rulesDraft}
+                              onChange={(e) => { setRulesDraft(e.target.value); setRulesDirty(true); }} />
+                  </>
+                )}
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button size="sm" disabled={rulesBusy || !rulesDirty} onClick={saveRules}>
+                    <Save /> Save rules for this pile
+                  </Button>
+                  <Button size="sm" variant="outline"
+                          disabled={rulesBusy || rules.source !== "pile"}
+                          onClick={resetRules}>
+                    <RotateCcw /> Reset to system default
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
           )}
         </section>
       )}
@@ -1054,211 +1315,311 @@ export default function App() {
         <section>
           {run ? (
             <>
-              <div className="bar">
+              <div className="my-3 flex flex-wrap items-center gap-3">
                 <StatusChip status={run.status} />
-                <span>{items.length} item(s) · {pending} still need a decision</span>
-                <button className="resume"
+                <span className="text-sm">
+                  {items.length} item(s) · {pending} still need a decision
+                </span>
+                <Button size="sm" className="ml-auto"
                         disabled={pending > 0 || run.status !== "awaiting_review"}
                         onClick={resume}>
                   {run.status !== "awaiting_review" ? "nothing to resume"
                     : pending > 0 ? `decide ${pending} more to resume`
-                    : "▶ Resume run"}
-                </button>
+                    : <><Play /> Resume run</>}
+                </Button>
               </div>
               {run.status === "awaiting_review" && (
-                <p className="dim">
+                <p className="my-2 text-sm text-muted-foreground">
                   Nothing is saved yet. Approve or reject every item below —
                   rejected items are dropped, approved ones land in the report
                   when you resume.
                 </p>
               )}
               {items.map((i) => <ItemCard key={i.id} item={i} onDecide={decide} />)}
-              {items.length === 0 &&
-                <p className="dim">This run produced no review items.</p>}
+              {items.length === 0 && (
+                <EmptyState Icon={CirclePause} title="This run produced no review items."
+                            sub="Nothing needed a human decision." />
+              )}
             </>
-          ) : <p className="dim">No run selected — run an analysis first.</p>}
+          ) : (
+            <EmptyState Icon={SearchCheck} title="No run selected"
+                        sub="Run an analysis first — it will pause here for your review." />
+          )}
         </section>
       )}
 
       {tab === "timeline" && (run
         ? <Activity events={run.events} />
-        : <p className="dim">No run selected — run an analysis first.</p>)}
+        : <EmptyState Icon={SearchCheck} title="No run selected"
+                      sub="Run an analysis first — every step it takes lands here, in order." />)}
 
       {/* ------------------------------------------------ register tab */}
       {tab === "register" && register && (
         <section>
           {register.sections.length > 0 && (
-            <div className="bar">
-              <span className="dim">
+            <div className="my-3 flex flex-wrap items-center gap-3">
+              <span className="text-sm text-muted-foreground">
                 Every value below cites its source — click a card to see the exact wording.
               </span>
-              <button className="ghost" style={{ marginLeft: "auto" }}
-                      onClick={copyRegister}>⧉ Copy as markdown</button>
+              <Button size="sm" variant="outline" className="ml-auto" onClick={copyRegister}>
+                <Copy /> Copy as markdown
+              </Button>
             </div>
           )}
           {register.sections.map((s) => (
-            <div className="card" key={s.section_key}>
-              <div className="card-head">
-                <b>{s.title}</b>
-                <span className="dim">{REASON_LABELS[s.updated_reason] || s.updated_reason}</span>
-                <span className="dim mono" title="Changes only when this section's content changes — proof nothing here was silently rewritten.">
-                  fingerprint {s.content_hash.slice(0, 10)}…
+            <Card className="my-2.5 gap-2" key={s.section_key}>
+              <CardHeader>
+                <CardTitleText>{s.title}</CardTitleText>
+                <span className="text-xs text-muted-foreground">
+                  {REASON_LABELS[s.updated_reason] || s.updated_reason}
                 </span>
-              </div>
-              <Markdown text={stripLeadingHeading(s.content_md)} />
-            </div>
+                <span className="ml-auto inline-flex items-center gap-1 font-mono text-xs text-muted-foreground"
+                      title="Changes only when this section's content changes — proof nothing here was silently rewritten.">
+                  <Fingerprint className="size-3.5" />
+                  {s.content_hash.slice(0, 10)}…
+                </span>
+              </CardHeader>
+              <CardContent>
+                <Markdown text={stripLeadingHeading(s.content_md)} />
+              </CardContent>
+            </Card>
           ))}
-          {register.sections.length === 0 &&
-            <p className="dim">Report is empty — run and approve an analysis.</p>}
+          {register.sections.length === 0 && (
+            <EmptyState Icon={FilePen} title="Report is empty"
+                        sub="Run and approve an analysis — approved content lands here." />
+          )}
         </section>
       )}
 
       {/* ------------------------------------------------ findings tab */}
       {tab === "findings" && (
         <section>
-          {findings.map((f) => (
-            <div className={`card ${f.status}`} key={f.id}>
-              <div className="card-head">
-                <span className="item-icon" aria-hidden="true">{SEV_ICON[f.severity] || "🔍"}</span>
-                <div className="item-title">
-                  <b>{ruleTitle(f.rule_id)}</b>
-                  <span className="dim">{SEV_LABEL[f.severity] || f.severity}{f.entity ? ` · ${f.entity}` : ""}</span>
-                </div>
-                <span className={`status ${f.status}`}>{f.status}</span>
-              </div>
-              <p>{humanizeText(f.message)}</p>
-              {f.source && (
-                <details className="raw-toggle">
-                  <summary>show source</summary>
-                  <p className="dim">{f.source}
-                    {f.anchor && ` (position ${f.anchor[0]}–${f.anchor[1]})`}</p>
-                </details>
-              )}
-            </div>
-          ))}
-          {findings.length === 0 && <p className="dim">No issues found — the corpus is clean.</p>}
+          {findings.map((f) => {
+            const sev = sevMeta(f.severity);
+            return (
+              <Card className={cn("my-2.5 gap-2", CARD_EDGE[f.status])} key={f.id}>
+                <CardHeader className="flex-nowrap items-start">
+                  <IconTile Icon={sev.Icon} cls={sev.cls} bg={sev.bg} />
+                  <div className="min-w-0 leading-snug">
+                    <b className="block text-[14.5px]">{ruleTitle(f.rule_id)}</b>
+                    <span className="text-xs text-muted-foreground">
+                      {sev.label}{f.entity ? ` · ${f.entity}` : ""}
+                    </span>
+                  </div>
+                  <ItemStatusBadge status={f.status} />
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm">{humanizeText(f.message)}</p>
+                  {f.source && (
+                    <Disclosure summary="show source">
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {f.source}
+                        {f.anchor && ` (position ${f.anchor[0]}–${f.anchor[1]})`}
+                      </p>
+                    </Disclosure>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
+          {findings.length === 0 && (
+            <EmptyState Icon={CircleCheckBig} tone="ok" title="No issues found"
+                        sub="The corpus is clean — an honest report of no findings." />
+          )}
         </section>
       )}
 
       {/* ------------------------------------------------ provenance tab */}
       {tab === "provenance" && audit && (
         <section>
-          <h3>Report sections — what changed, when, why</h3>
-          <table className="grid">
-            <thead><tr><th>section</th><th>last updated</th><th>why</th>
-              <th>run type</th><th>triggered by</th></tr></thead>
-            <tbody>
+          <h3 className="mt-5 mb-2 text-[15px] font-semibold">
+            Report sections — what changed, when, why
+          </h3>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>section</TableHead><TableHead>last updated</TableHead>
+                <TableHead>why</TableHead><TableHead>run type</TableHead>
+                <TableHead>triggered by</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {audit.sections.map((s) => (
-                <tr key={s.section_key}>
-                  <td>{s.section_key === "overview" ? "Overview" : s.section_key.replace(/^client-/, "")}</td>
-                  <td>{s.updated_at.slice(0, 19).replace("T", " ")}</td>
-                  <td>{REASON_LABELS[s.updated_reason] || s.updated_reason}</td>
-                  <td>{RUN_KIND_LABELS[s.run_kind] || s.run_kind || ""}</td>
-                  <td>{s.trigger_document || ""}</td>
-                </tr>
+                <TableRow key={s.section_key}>
+                  <TableCell className="font-medium">
+                    {s.section_key === "overview" ? "Overview" : s.section_key.replace(/^client-/, "")}
+                  </TableCell>
+                  <TableCell>{s.updated_at.slice(0, 19).replace("T", " ")}</TableCell>
+                  <TableCell>{REASON_LABELS[s.updated_reason] || s.updated_reason}</TableCell>
+                  <TableCell>{RUN_KIND_LABELS[s.run_kind] || s.run_kind || ""}</TableCell>
+                  <TableCell>{s.trigger_document || ""}</TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
-          <details className="raw-toggle">
-            <summary>Show fingerprints (the byte-identity proof for untouched sections)</summary>
-            <table className="grid">
-              <thead><tr><th>section</th><th>hash</th></tr></thead>
-              <tbody>
+            </TableBody>
+          </Table>
+          <Disclosure summary="Show fingerprints (the byte-identity proof for untouched sections)">
+            <Table>
+              <TableHeader>
+                <TableRow><TableHead>section</TableHead><TableHead>hash</TableHead></TableRow>
+              </TableHeader>
+              <TableBody>
                 {audit.sections.map((s) => (
-                  <tr key={s.section_key}>
-                    <td>{s.section_key}</td>
-                    <td className="mono dim">{s.content_hash.slice(0, 16)}…</td>
-                  </tr>
+                  <TableRow key={s.section_key}>
+                    <TableCell>{s.section_key}</TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">
+                      {s.content_hash.slice(0, 16)}…
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </details>
+              </TableBody>
+            </Table>
+          </Disclosure>
 
-          <h3>Disagreements found ({audit.conflicts.length})</h3>
+          <h3 className="mt-5 mb-2 text-[15px] font-semibold">
+            Disagreements found ({audit.conflicts.length})
+          </h3>
           {audit.conflicts.map((c, i) => (
-            <div className="card" key={i}>
-              <div className="card-head">
-                <span className="item-icon" aria-hidden="true">⚠️</span>
-                <div className="item-title"><b>{c.entity}</b><span className="dim">{humanizeKey(c.key)}</span></div>
-                <span className={`status ${c.status}`}>{c.status}</span>
-              </div>
-              <p>{humanizeText(c.detail)}</p>
-            </div>
+            <Card className="my-2.5 gap-2" key={i}>
+              <CardHeader className="flex-nowrap items-start">
+                <IconTile Icon={TriangleAlert} cls="text-amber-600" bg="bg-amber-50" />
+                <div className="min-w-0 leading-snug">
+                  <b className="block text-[14.5px]">{c.entity}</b>
+                  <span className="text-xs text-muted-foreground">{humanizeKey(c.key)}</span>
+                </div>
+                <ItemStatusBadge status={c.status} />
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm">{humanizeText(c.detail)}</p>
+              </CardContent>
+            </Card>
           ))}
-          {audit.conflicts.length === 0 && <p className="dim">No disagreements found.</p>}
+          {audit.conflicts.length === 0 && (
+            <p className="text-sm text-muted-foreground">No disagreements found.</p>
+          )}
 
-          <details className="raw-toggle">
-            <summary>Show every extracted fact ({audit.facts.length}) — for verifying provenance</summary>
-            <table className="grid">
-              <thead><tr><th>client</th><th>fact</th><th>value</th>
-                <th>source</th><th>position</th><th></th></tr></thead>
-              <tbody>
+          <Disclosure summary={`Show every extracted fact (${audit.facts.length}) — for verifying provenance`}>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>client</TableHead><TableHead>fact</TableHead>
+                  <TableHead>value</TableHead><TableHead>source</TableHead>
+                  <TableHead>position</TableHead><TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {audit.facts.map((f, i) => (
-                  <tr key={i} className={f.superseded ? "superseded" : ""}>
-                    <td>{f.entity}</td><td>{humanizeKey(f.key)}</td><td>{f.value}</td>
-                    <td>{f.source}</td>
-                    <td className="mono dim">{f.anchor[0]}–{f.anchor[1]}</td>
-                    <td>{f.superseded ? "superseded" : ""}</td>
-                  </tr>
+                  <TableRow key={i} className={f.superseded ? "opacity-55 line-through" : ""}>
+                    <TableCell>{f.entity}</TableCell>
+                    <TableCell>{humanizeKey(f.key)}</TableCell>
+                    <TableCell>{f.value}</TableCell>
+                    <TableCell>{f.source}</TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">
+                      {f.anchor[0]}–{f.anchor[1]}
+                    </TableCell>
+                    <TableCell>{f.superseded ? "superseded" : ""}</TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </details>
+              </TableBody>
+            </Table>
+          </Disclosure>
         </section>
       )}
 
       {/* ------------------------------------------------ costs tab */}
       {tab === "costs" && costs && (
         <section>
-          <div className="cost-hero card">
-            <div className="cost-num">${costs.total.usd.toFixed(4)}</div>
-            <div className="dim">total spent across all runs</div>
-            <div className="cost-sub">
-              {(costs.total.latency_ms / 1000).toFixed(1)}s of processing time
-              {" · "}{(costs.total.input_tokens + costs.total.output_tokens).toLocaleString()} words of AI reading/writing
-              {" · "}{costs.total.superdocs_ops} paid export operation(s)
-            </div>
+          <div className="my-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <StatTile label="Total spent" value={`$${costs.total.usd.toFixed(4)}`}
+                      sub="across all runs" accent />
+            <StatTile label="Processing time"
+                      value={`${(costs.total.latency_ms / 1000).toFixed(1)}s`}
+                      sub="model + tool latency" />
+            <StatTile label="AI reading + writing"
+                      value={fmtCompact(costs.total.input_tokens + costs.total.output_tokens)}
+                      sub="input + output tokens" />
+            <StatTile label="Styled exports" value={costs.total.superdocs_ops}
+                      sub="paid SuperDocs operation(s)" />
           </div>
-          <details className="raw-toggle">
-            <summary>Show the breakdown by run and stage</summary>
-            <table className="grid">
-              <thead><tr><th>run</th><th>stage</th><th>provider</th><th>model</th>
-                <th>calls</th><th>in</th><th>out</th><th>ops</th><th>usd</th>
-                <th>ms</th></tr></thead>
-              <tbody>
+          <Disclosure summary="Show the breakdown by run and stage">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>run</TableHead><TableHead>stage</TableHead>
+                  <TableHead>provider</TableHead><TableHead>model</TableHead>
+                  <TableHead>calls</TableHead><TableHead>in</TableHead>
+                  <TableHead>out</TableHead><TableHead>ops</TableHead>
+                  <TableHead>usd</TableHead><TableHead>ms</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {costs.by_stage.map((r, i) => (
-                  <tr key={i}>
-                    <td className="mono dim">{(r.run_id || "").slice(0, 8)}</td>
-                    <td>{r.stage}</td><td>{r.provider}</td><td>{r.model || ""}</td>
-                    <td>{r.calls}</td><td>{r.input_tokens}</td>
-                    <td>{r.output_tokens}</td><td>{r.superdocs_ops}</td>
-                    <td>{r.usd.toFixed(4)}</td><td>{r.latency_ms}</td>
-                  </tr>
+                  <TableRow key={i}>
+                    <TableCell className="font-mono text-xs text-muted-foreground">
+                      {(r.run_id || "").slice(0, 8)}
+                    </TableCell>
+                    <TableCell>{r.stage}</TableCell>
+                    <TableCell>{r.provider}</TableCell>
+                    <TableCell>{r.model || ""}</TableCell>
+                    <TableCell>{r.calls}</TableCell>
+                    <TableCell>{r.input_tokens}</TableCell>
+                    <TableCell>{r.output_tokens}</TableCell>
+                    <TableCell>{r.superdocs_ops}</TableCell>
+                    <TableCell>{r.usd.toFixed(4)}</TableCell>
+                    <TableCell>{r.latency_ms}</TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </details>
+              </TableBody>
+            </Table>
+          </Disclosure>
         </section>
       )}
     </div>
   );
 }
 
+// Card titles in this app are inline <b>-weight text sitting beside chips,
+// not the block headings shadcn's CardTitle assumes.
+function CardTitleText({ children }) {
+  return <b className="text-sm font-semibold">{children}</b>;
+}
+
+function segCls(active) {
+  return cn(
+    "inline-flex cursor-pointer items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+    active ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+  );
+}
+
+function ErrorBanner({ error, onDismiss }) {
+  return (
+    <Alert variant="destructive" className="my-2 cursor-pointer" onClick={onDismiss}
+           title="Click to dismiss">
+      <CircleAlert />
+      <AlertTitle>Something went wrong</AlertTitle>
+      <AlertDescription>{error}</AlertDescription>
+    </Alert>
+  );
+}
+
 function Header({ health }) {
   const live = health && health.llm_provider !== "mock";
   return (
-    <header>
-      <div className="brand">
-        <div className="logo">DT</div>
+    <header className="flex flex-wrap items-center justify-between gap-3 py-4">
+      <div className="flex items-center gap-3">
+        <div className="grid size-10 place-items-center rounded-xl bg-gradient-to-br from-primary to-sky-600 text-white shadow-sm">
+          <FileSearch className="size-5" />
+        </div>
         <div>
-          <h1>DocTask</h1>
-          <span className="dim">The Analyst That Never Sleeps</span>
+          <h1 className="text-lg leading-tight font-bold tracking-tight">DocTask</h1>
+          <span className="text-xs text-muted-foreground">The Analyst That Never Sleeps</span>
         </div>
       </div>
-      <div className="header-right">
-        <details className="glossary">
-          <summary>What do these words mean?</summary>
-          <div className="glossary-panel">
+      <div className="flex flex-wrap items-center gap-3">
+        <details className="relative text-xs text-muted-foreground">
+          <summary className="flex cursor-pointer list-none items-center gap-1 font-medium select-none hover:text-primary [&::-webkit-details-marker]:hidden">
+            <Info className="size-3.5" /> What do these words mean?
+          </summary>
+          <div className="absolute top-full right-0 z-20 mt-2 w-[320px] max-w-[80vw] space-y-2 rounded-xl border bg-popover p-4 text-popover-foreground shadow-md">
             <div><b>Pile</b> — a set of related documents you're analyzing together.</div>
             <div><b>Run</b> — one pass of the analyst reading your documents and proposing changes.</div>
             <div><b>Rules / playbook</b> — the checklist this pile is examined against; yours if you've set one, the system default otherwise.</div>
@@ -1268,8 +1629,11 @@ function Header({ health }) {
           </div>
         </details>
         {health && (
-          <span className={`chip ${live ? "live" : "idle"}`} title="Active LLM backend">
-            <i />
+          <span className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold",
+                  live ? CHIP_TONES.live : CHIP_TONES.idle)}
+                title="Active LLM backend">
+            <i className={cn("size-2 rounded-full bg-current", live && "pulse-dot")} />
             {live
               ? `live · ${health.llm_provider}${health.llm_model ? ` (${health.llm_model})` : ""}`
               : "mock mode (recorded corpus)"}

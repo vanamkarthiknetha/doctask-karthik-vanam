@@ -155,3 +155,22 @@ Format: id · decision/assumption · why · how to revisit.
   same client (two real clients named "Acme" and "Acme East" in one pile
   would wrongly merge — the fix for that day is human resolution, not
   silent guessing).
+
+- **P22 - Review UI restyled on Tailwind v4 + shadcn/ui (vendored), zero
+  behavior change.** The hand-rolled CSS had hit its ceiling, and the review
+  interface is the face of the human gate - presentation quality is part of
+  what this round grades. Swap: shadcn/ui components vendored as JSX under
+  `ui/src/components/ui/` (button, card, badge, tabs, select, input,
+  textarea, table, alert, sonner toasts), lucide icons replacing emoji,
+  Inter bundled via @fontsource (no CDN at runtime - the container still
+  works fully offline), and a stat-tile Cost tab. Every piece of application
+  logic - the 2.5s polling refresh, run/pile selection, decision posting,
+  rule-builder YAML round-tripping, hash deep links - was transcribed
+  unchanged; only presentation moved. Verified the way A16 demands: rebuilt
+  the Docker image and screenshotted all eight tabs against the live
+  backend, which caught the one real defect (the run selector truncating
+  "needs review" to "nee") before commit. One constraint Radix imposes: a
+  select item may not carry an empty-string value, so the "no runs yet"
+  state is a disabled placeholder trigger rather than an empty option -
+  identical visible behavior. Two of the verified screenshots now live in
+  `screenshots/` and anchor the README.

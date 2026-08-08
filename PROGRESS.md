@@ -174,3 +174,30 @@ Format: id · decision/assumption · why · how to revisit.
   state is a disabled placeholder trigger rather than an empty option -
   identical visible behavior. Two of the verified screenshots now live in
   `screenshots/` and anchor the README.
+
+- **P23 - Exports were being written into the container's ephemeral layer;
+  fixed with a bind mount (found by asking "where do the files actually
+  go?").** docker-compose declared an `exports` named volume at
+  /data/exports but never set EXPORT_DIR, so the render node fell back to
+  REPO_ROOT/exports = /srv/exports inside the container: exports were
+  invisible from the host and deleted on every container recreation, while
+  the intended volume sat empty. The render event still said "exported" -
+  true inside the container, useless to a human, and against the spirit of
+  behavior 5. Fix: EXPORT_DIR=/data/exports plus a HOST BIND MOUNT
+  (./exports:/data/exports), not the named volume - exported .docx/.pdf are
+  exactly the files a human opens in Word, so they belong in a browsable
+  folder, same pattern as corpus/incoming. Verified end to end: a file
+  touched at /data/exports inside the container appeared in .\exports\ on
+  the host; the two registers trapped in the old container layer were
+  docker-cp'd out before recreation. Same audit found the same class of
+  issue one more time: the default playbook was baked into the image, so a
+  host edit of rules/playbook.yaml silently did nothing until a rebuild -
+  now bind-mounted read-only with RULES_FILE=/data/rules/playbook.yaml
+  ("configuration over code": a rule edit is a data change, not a rebuild).
+  Volume policy now stated in the compose comments: named volume for
+  machine state no human browses (Postgres), bind mounts for files humans
+  exchange with the system (incoming docs, exports, rules), container layer
+  for nothing that matters. Remaining known gap, deliberately not fixed
+  here: upload still reads the whole file into memory (api.py
+  `await file.read()`) - honest limitation for very large files, noted for
+  the write-up.

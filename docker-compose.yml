@@ -8,6 +8,9 @@ services:
     ports:
       - "5433:5432"
     volumes:
+      # Named volume, not a bind mount: Postgres data is machine state no
+      # human browses, and named volumes avoid NTFS permission/performance
+      # problems on Windows hosts.
       - dbdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U doctask -d doctask"]
@@ -29,6 +32,8 @@ services:
       LLM_PROVIDER: ${LLM_PROVIDER:-auto}
       WATCH_DIR: /data/incoming
       CORPUS_DIR: /data/corpus
+      EXPORT_DIR: /data/exports
+      RULES_FILE: /data/rules/playbook.yaml
     ports:
       - "8000:8000"
     volumes:
@@ -36,8 +41,14 @@ services:
       # Bind mount: drop a file into ./corpus/incoming/<pile-name>/ on the
       # host (Explorer drag-and-drop works) and the watcher picks it up.
       - ./corpus/incoming:/data/incoming
-      - exports:/data/exports
+      # Bind mount, not a named volume: exported .docx/.pdf registers land
+      # in ./exports/ on the host where a human can actually open them.
+      # (A named volume here once trapped exports inside Docker while the
+      # container wrote to its own ephemeral layer — see PROGRESS P23.)
+      - ./exports:/data/exports
+      # Read-only bind mount: the default playbook is configuration, so a
+      # rule edit is a data change on the host, not an image rebuild.
+      - ./rules:/data/rules:ro
 
 volumes:
   dbdata:
-  exports:

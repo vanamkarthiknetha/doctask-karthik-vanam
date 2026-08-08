@@ -56,6 +56,11 @@ Optional keys (put them in `.env`, see `.env.example`):
 | `ANTHROPIC_API_KEY` | Same, on Claude instead | alternative backend |
 | `SUPERDOCS_API_KEY` | Styled `.docx`/`.pdf` register export via SuperDocs | uploads/exports are free ops |
 
+Exported registers land in **`./exports/`** on the host (bind-mounted into
+the container), so the `.docx`/`.pdf` can be opened straight from Explorer.
+The default playbook is bind-mounted read-only too: editing
+`rules/playbook.yaml` takes effect on the next run, no image rebuild.
+
 ### Drive a full analysis
 
 ```bash

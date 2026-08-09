@@ -201,3 +201,18 @@ Format: id · decision/assumption · why · how to revisit.
   here: upload still reads the whole file into memory (api.py
   `await file.read()`) - honest limitation for very large files, noted for
   the write-up.
+
+- **P24 - Classify prompt made vendor-agnostic for the demo-call corpus
+  (2026-08-09).** A fresh demo pile (project-root `demo-corpus/`, clients
+  Oakline Retail Group / Harborlight Payments, vendor Kestrel Voice
+  Systems) uses a different fictional provider than the seed corpus's
+  Meridian Voice Systems. The classify system prompt in both live
+  providers hardcoded "not the provider Meridian Voice Systems" as the
+  entity disambiguator; replaced with a structural definition (the party
+  labeled "Client" / the "Bill to" party, never the issuing
+  provider/vendor). Why: entity selection should not depend on knowing
+  the vendor's name - same trust-boundary philosophy as P14/P15, applied
+  to the prompt itself. Offline tests unaffected (mock replays fixtures,
+  prompts unused). MUST rehearse one full live run on the demo corpus
+  before the call: this prompt path is live-only and was previously
+  live-verified only with the Meridian wording.

@@ -853,13 +853,22 @@ export default function App() {
     setBusy(false);
   };
 
-  const startRun = async () => {
+  // kind "update" analyzes ONLY the documents added since the last run, so
+  // every other client's section stays byte-identical and the commit proves
+  // it — the same focused path the watched folder takes, driven by a click.
+  const startRun = async (kind = "full") => {
+    const fresh = docs.filter((d) => d.status === "ingested");
     setBusy(true);
     try {
-      const r = await api(`/piles/${pileId}/runs`, { kind: "full" });
+      const body = kind === "update"
+        ? { kind: "update", doc_ids: fresh.map((d) => d.id) }
+        : { kind: "full" };
+      const r = await api(`/piles/${pileId}/runs`, body);
       setRunSel({ id: r.id, manual: false });
       setTab("timeline");
-      say("Analysis started — it will pause for your review.");
+      say(kind === "update"
+        ? `Focused update started on ${fresh.length} new document(s) — only the clients they affect will change.`
+        : "Analysis started — it will pause for your review.");
       refresh();
     } catch (e) { setError(String(e.message || e)); }
     setBusy(false);
@@ -979,6 +988,10 @@ export default function App() {
   const pending = items.filter((i) => i.status === "pending").length;
   const activeRun = runs.find((r) =>
     ["running", "awaiting_review", "committing"].includes(r.status));
+  // A focused update is only meaningful once a register exists to leave
+  // untouched; before that, "update" and "full" would do the same work.
+  const newDocs = docs.filter((d) => d.status === "ingested");
+  const canFocusUpdate = newDocs.length > 0 && !!register?.sections.length;
 
   // Files can be dropped anywhere in the window — the control bar, a table,
   // any tab — not only on the dashed zone. Without window-level handlers a
@@ -1178,12 +1191,29 @@ export default function App() {
             <input ref={fileInput} type="file" multiple hidden
                    accept=".md,.txt,.html,.docx,.pdf"
                    onChange={(e) => { uploadFiles([...e.target.files]); e.target.value = ""; }} />
-            <Button size="sm" className="h-10" disabled={busy || !docs.length || !!activeRun}
-                    title={!docs.length ? "Add documents first"
-                          : activeRun ? "A run is already in progress" : ""}
-                    onClick={startRun}>
-              <Play /> Run analysis
-            </Button>
+            {canFocusUpdate ? (
+              <>
+                <Button size="sm" className="h-10" disabled={busy || !!activeRun}
+                        title={activeRun ? "A run is already in progress"
+                          : `Focused update: analyze only the ${newDocs.length} new document(s). Every other client's section stays byte-identical, and the commit proves it.`}
+                        onClick={() => startRun("update")}>
+                  <Play /> Analyze {newDocs.length} new
+                </Button>
+                <Button size="sm" variant="outline" className="h-10"
+                        disabled={busy || !!activeRun}
+                        title="Re-analyze every document in this pile from scratch"
+                        onClick={() => startRun("full")}>
+                  <RotateCcw /> Re-analyze all
+                </Button>
+              </>
+            ) : (
+              <Button size="sm" className="h-10" disabled={busy || !docs.length || !!activeRun}
+                      title={!docs.length ? "Add documents first"
+                            : activeRun ? "A run is already in progress" : ""}
+                      onClick={() => startRun("full")}>
+                <Play /> Run analysis
+              </Button>
+            )}
           </div>
         </div>
       </Card>
@@ -1299,6 +1329,14 @@ export default function App() {
                 ))}
               </TableBody>
             </Table>
+          )}
+          {canFocusUpdate && (
+            <p className="mt-3 text-sm text-muted-foreground">
+              {newDocs.length} document(s) not yet analyzed —{" "}
+              <b className="text-foreground">Analyze {newDocs.length} new</b>{" "}
+              runs a focused update that only touches the clients they mention,
+              leaving every other section byte-identical.
+            </p>
           )}
           {pile && (
             <p className="mt-4 text-sm text-muted-foreground">

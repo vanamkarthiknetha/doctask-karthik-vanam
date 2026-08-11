@@ -370,11 +370,21 @@ def start_run(pile_id: str, kind: str = "full", doc_ids: list[str] | None = None
             409, f"pile already has an active run {active['id']}; "
             "finish or resume it first",
         )
+    known = {str(d["id"]) for d in
+             db.q("SELECT id FROM documents WHERE pile_id=%s", (pile_id,))}
     if doc_ids is None:
-        doc_ids = [str(d["id"]) for d in
-                   db.q("SELECT id FROM documents WHERE pile_id=%s", (pile_id,))]
+        doc_ids = sorted(known)
+    else:
+        # Checked as strings BEFORE any query casts them to uuid[], so a
+        # malformed id is a clear 422 rather than a database error.
+        unknown = [d for d in doc_ids if d not in known]
+        if unknown:
+            raise ServiceError(
+                422, f"document(s) not in this pile: {', '.join(unknown)}")
     if not doc_ids and kind == "full":
         raise ServiceError(422, "pile has no documents")
+    if not doc_ids and kind == "update":
+        raise ServiceError(422, "an update run needs at least one document")
     thread_id = f"run-{uuid.uuid4()}"
     try:
         run = db.one(

@@ -32,6 +32,56 @@ def test_sweep_ingests_runs_and_archives(tmp_path, monkeypatch, pile):
     assert watcher.sweep_once() == []
 
 
+def test_batch_arrival_is_a_single_update_run(tmp_path, monkeypatch):
+    """Five files landing together are ONE arrival: one update run covering
+    all of them, so a bulk drop costs one trip through the human gate rather
+    than one per file."""
+    p = service.create_pile(f"test-watch-{uuid.uuid4().hex[:8]}")
+    try:
+        watch = tmp_path / "incoming"
+        pile_dir = watch / p["name"]
+        pile_dir.mkdir(parents=True)
+        names = ["brightline-msa.md", "corvid-msa.md", "halcyon-msa.md"]
+        for n in names:
+            shutil.copy(SEED / n, pile_dir)
+        monkeypatch.setattr(config, "WATCH_DIR", str(watch))
+
+        handled = watcher.sweep_once()
+        assert sorted(handled) == sorted(names)
+
+        runs = service.list_runs(p["id"])
+        assert len(runs) == 1, "one arrival, one run — not one run per file"
+        assert runs[0]["kind"] == "update"
+        assert runs[0]["status"] == "awaiting_review"
+        assert len(service.list_documents(p["id"])) == len(names)
+        for n in names:
+            assert (pile_dir / "processed" / n).exists()
+    finally:
+        db.q("DELETE FROM piles WHERE id=%s", (p["id"],))
+
+
+def test_unreadable_file_fails_alone_and_the_batch_still_runs(tmp_path,
+                                                              monkeypatch):
+    """One bad file must not cost the others their run."""
+    p = service.create_pile(f"test-watch-{uuid.uuid4().hex[:8]}")
+    try:
+        watch = tmp_path / "incoming"
+        pile_dir = watch / p["name"]
+        pile_dir.mkdir(parents=True)
+        shutil.copy(SEED / "brightline-msa.md", pile_dir)
+        (pile_dir / "broken.docx").write_bytes(b"not really a docx")
+        monkeypatch.setattr(config, "WATCH_DIR", str(watch))
+
+        handled = watcher.sweep_once()
+        assert handled == ["brightline-msa.md"]
+        assert (pile_dir / "failed" / "broken.docx").exists()
+        assert (pile_dir / "processed" / "brightline-msa.md").exists()
+        runs = service.list_runs(p["id"])
+        assert len(runs) == 1 and runs[0]["status"] == "awaiting_review"
+    finally:
+        db.q("DELETE FROM piles WHERE id=%s", (p["id"],))
+
+
 def test_busy_pile_leaves_file_for_next_sweep(tmp_path, monkeypatch):
     p = service.create_pile(f"test-watch-{uuid.uuid4().hex[:8]}")
     try:

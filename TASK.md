@@ -61,7 +61,16 @@ A human gates everything, item by item.
 
 - Watched location: `WATCH_DIR/<pile-name>/` (`app/watcher.py`), files moved
   to `processed/`/`failed/` after handling; busy pile → file waits (queued).
-- Focused update: impact = entities of the arriving document; only their
+  Everything present in one sweep is one arrival: a bulk drop is a single
+  update run, not one run (and one human gate) per file
+  (`tests/test_watcher.py::test_batch_arrival_is_a_single_update_run`); an
+  unreadable file goes to `failed/` without costing the rest their run.
+- The same focused path is reachable from the UI: with documents waiting
+  unanalyzed, the control bar offers "Analyze N new" (`kind=update` over
+  exactly those documents) beside "Re-analyze all". Upload never auto-runs —
+  batching and cost stay the human's call; the watched folder is the
+  unattended path.
+- Focused update: impact = entities of the arriving document(s); only their
   sections recompose. `tests/test_focused_update.py` asserts the other
   sections' hashes are **byte-identical** and that the commit event records
   the before/after hash per section — the proof, not just the property.

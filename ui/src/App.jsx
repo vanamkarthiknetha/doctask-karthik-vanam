@@ -798,6 +798,25 @@ export default function App() {
     refresh();
   };
 
+  const deleteDoc = async (d) => {
+    if (!window.confirm(
+      `Remove "${d.filename}" from this pile?\n\n` +
+      "Everything the analyst derived from it — its extracted facts, the " +
+      "issues raised about it, and any disagreement that used it as " +
+      "evidence — is removed too.\n\nThe report keeps its current content " +
+      "until you run the analysis again.")) return;
+    setBusy(true);
+    try {
+      const r = await api(`/documents/${d.id}`, undefined, "DELETE");
+      if (docView?.id === d.id) setDocView(null);
+      say(`"${r.deleted}" removed — ${r.facts_removed} fact(s), ` +
+          `${r.findings_removed} issue(s), ${r.conflicts_removed} disagreement(s).` +
+          (r.register_stale ? " Re-run the analysis to refresh the report." : ""));
+      refresh();
+    } catch (e) { setError(String(e.message || e)); }
+    setBusy(false);
+  };
+
   const deletePile = async () => {
     const p = (piles || []).find((x) => x.id === pileId);
     if (!p) return;
@@ -1265,9 +1284,16 @@ export default function App() {
                     <TableCell>{d.entity || ""}</TableCell>
                     <TableCell><StatusText status={d.status} /></TableCell>
                     <TableCell>
-                      {d.injection_flagged && (
-                        <Badge variant="destructive"><TriangleAlert /> injection flagged</Badge>
-                      )}
+                      <span className="flex items-center justify-end gap-2">
+                        {d.injection_flagged && (
+                          <Badge variant="destructive"><TriangleAlert /> injection flagged</Badge>
+                        )}
+                        <Button size="icon-sm" variant="ghost" disabled={busy}
+                                title="Remove this document and everything derived from it"
+                                onClick={(e) => { e.stopPropagation(); deleteDoc(d); }}>
+                          <Trash2 className="text-red-600" />
+                        </Button>
+                      </span>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -1493,6 +1519,18 @@ export default function App() {
       {/* ------------------------------------------------ register tab */}
       {tab === "register" && register && (
         <section>
+          {register.stale && (
+            <Alert className="my-3 border-amber-300 bg-amber-50 text-amber-900">
+              <TriangleAlert className="text-amber-600" />
+              <AlertTitle>This report is out of date</AlertTitle>
+              <AlertDescription className="text-amber-900/90">
+                A source document was removed, so {register.stale_claims} value(s)
+                below still cite evidence that no longer exists. Run the analysis
+                again to recompose the affected sections — it costs no model calls,
+                because every remaining document has already been read.
+              </AlertDescription>
+            </Alert>
+          )}
           {register.sections.length > 0 && (
             <div className="my-3 flex flex-wrap items-center gap-2">
               <span className="mr-auto text-sm text-muted-foreground">

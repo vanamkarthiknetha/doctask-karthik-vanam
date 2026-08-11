@@ -109,6 +109,14 @@ def get_document(doc_id: str):
     return _wrap(service.get_document, doc_id)
 
 
+@app.delete("/documents/{doc_id}")
+def delete_document(doc_id: str):
+    """Remove a source document and everything derived from it. The register
+    is left untouched but reports itself stale until the next run recomposes
+    it — register content only ever changes through an approved run."""
+    return _wrap(service.delete_document, doc_id)
+
+
 @app.get("/piles/{pile_id}/rules")
 def get_rules(pile_id: str):
     """The playbook this pile is examined against right now: its own

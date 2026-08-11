@@ -271,6 +271,71 @@ def list_documents(pile_id: str) -> list[dict]:
                  (pile_id,))]
 
 
+def delete_document(doc_id: str) -> dict:
+    """Remove one source document and everything derived from it: its facts
+    (FK cascade), findings raised about it (FK cascade), and any conflict
+    whose evidence included those facts (fact_ids is a plain UUID array, so
+    the database will not clean it up for us).
+
+    The register is deliberately NOT rewritten here. Register content only
+    ever changes through an approved run, so what a removal does is make the
+    report STALE — some claim now cites a fact that no longer exists — and
+    say so. Re-running the analysis recomposes the affected sections through
+    the normal review gate, and costs no model calls because every surviving
+    document is already extracted.
+    """
+    doc = db.one("SELECT * FROM documents WHERE id=%s", (doc_id,))
+    if not doc:
+        raise ServiceError(404, "document not found")
+    pile_id = str(doc["pile_id"])
+    active = db.one(
+        "SELECT id, status FROM runs WHERE pile_id=%s AND status = ANY(%s)",
+        (pile_id, list(ACTIVE_STATUSES)),
+    )
+    if active:
+        raise ServiceError(
+            409, f"run {active['id']} is {active['status']}; it was computed "
+            "from the current document set — finish or abandon it before "
+            "removing a document")
+    fact_ids = [str(r["id"]) for r in
+                db.q("SELECT id FROM facts WHERE doc_id=%s", (doc_id,))]
+    n_findings = db.one("SELECT count(*) AS n FROM findings WHERE doc_id=%s",
+                        (doc_id,))["n"]
+    n_conflicts = n_revived = 0
+    if fact_ids:
+        # A fact in another document may have been superseded BY one of these
+        # (an amendment revising the MSA's rate). Retracting the newer
+        # document must REVIVE the older statement — it is authoritative
+        # again — not leave it pointing at evidence that no longer exists.
+        n_revived = len(db.q(
+            "UPDATE facts SET superseded_by=NULL "
+            "WHERE superseded_by = ANY(%s::uuid[]) RETURNING id", (fact_ids,)))
+        n_conflicts = len(db.q(
+            "DELETE FROM conflicts WHERE pile_id=%s AND fact_ids && %s::uuid[] "
+            "RETURNING id", (pile_id, fact_ids)))
+    db.q("DELETE FROM documents WHERE id=%s", (doc_id,))  # cascades facts+findings
+    return {
+        "deleted": doc["filename"], "pile_id": pile_id,
+        "facts_removed": len(fact_ids), "findings_removed": n_findings,
+        "conflicts_removed": n_conflicts, "facts_revived": n_revived,
+        "register_stale": stale_claims(pile_id) > 0,
+    }
+
+
+def stale_claims(pile_id: str) -> int:
+    """How many register claims cite a fact that no longer exists. This is
+    the grounding invariant checked directly rather than tracked in a flag:
+    it becomes non-zero the moment a source document is removed, and returns
+    to zero by itself once the register is recomposed."""
+    return db.one(
+        "SELECT count(*) AS n FROM claims c JOIN sections s ON s.id=c.section_id "
+        "WHERE s.pile_id=%s AND EXISTS ("
+        "  SELECT 1 FROM unnest(c.fact_ids) fid "
+        "  WHERE NOT EXISTS (SELECT 1 FROM facts f WHERE f.id = fid))",
+        (pile_id,),
+    )["n"]
+
+
 def get_document(doc_id: str) -> dict:
     """One imported document with the raw text the pipeline actually read —
     the text every fact quote and character anchor points into."""
@@ -477,7 +542,9 @@ def get_register(pile_id: str) -> dict:
     from .register import register_markdown
 
     markdown = register_markdown(sections) if sections else ""
-    return {"sections": out, "markdown": markdown}
+    stale = stale_claims(pile_id)
+    return {"sections": out, "markdown": markdown, "stale_claims": stale,
+            "stale": stale > 0}
 
 
 def get_audit(pile_id: str) -> dict:

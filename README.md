@@ -139,6 +139,71 @@ cp corpus/extra/brightline-amendment-2.md corpus/incoming/clients/
 # the UI, then check the provenance tab for the byte-identity record
 ```
 
+Every pile gets its watched folder when it is created (and startup
+back-fills piles that predate their folder), so the path the UI names
+always exists. **A batch that lands together is one arrival:** five files
+dropped at once become one update run over all five, not five runs and five
+trips through the gate — the update stays focused either way, because
+impact is computed from the entities the batch mentions
+(`tests/test_watcher.py::test_batch_arrival_is_a_single_update_run`). A file
+the pile cannot read goes to `failed/` alone without costing the rest their
+run.
+
+The same focused path is reachable without touching the filesystem: with
+documents waiting unanalyzed, the UI offers **"Analyze N new"**
+(`kind=update` over exactly those documents) beside "Re-analyze all".
+Uploading never auto-runs — batched uploads would collide on the
+single-active-run guard, and every run spends model calls and creates
+review work, so choosing *when* to spend stays with the human at the
+keyboard. The watched folder is the unattended path; the button is the
+attended one.
+
+### Removing documents (and piles)
+
+`DELETE /documents/{id}` removes a source document and everything derived
+from it: its facts and findings (FK cascade) and any conflict whose
+evidence included those facts (`fact_ids` is a bare `UUID[]` the database
+will not clean up). Retracting an amendment **revives the contract term it
+superseded** — that term is authoritative again, which is both the correct
+semantics and what the self-referencing `superseded_by` FK was pointing at.
+
+What removal deliberately does *not* do is rewrite the register. Register
+content only ever changes through an approved run, and a delete button must
+not be a backdoor around the gate. Instead the register **reports itself
+stale**: `GET /piles/{id}/register` checks the grounding invariant directly
+— are there claims citing facts that no longer exist? — so the flag needs no
+column, cannot be forgotten, and clears itself on the next run. The UI shows
+it as a banner naming how many values are affected.
+
+One consequence worth stating, because it cost a real bug: a document that
+is removed and re-imported produces *identical* section wording under fresh
+fact ids, so the content-hash skip in `compose` passed over the section and
+left its claims pointing at deleted facts forever. Recomposition is now
+driven by broken grounding as well as by changed content, and because the
+text really is unchanged the commit still records `byte_identical: true` —
+the register is provably not rewritten, only re-linked to its evidence
+(`tests/test_delete_document.py::test_reimporting_a_removed_document_clears_staleness`).
+
+`DELETE /piles/{id}` erases a pile completely — every row including graph
+checkpoints, stage events and the cost ledger (neither has an FK cascade),
+the exported files, and its watched folder, whose leftovers would otherwise
+make the watcher quietly recreate the pile. Refused while a run is
+executing; a run parked at the gate is abandonable, since deleting the pile
+is how you walk away from a review you no longer want.
+
+### Getting the deliverable out
+
+Rendered registers are named after the pile (`register-<pile-name>.docx`
+/`.pdf`) rather than an internal id, and the same name is used for the
+SuperDocs upload. `GET /piles/{id}/exports` lists what has been rendered and
+`GET /piles/{id}/exports/{docx|pdf}` serves it (`?inline=1` opens the PDF in
+the browser); the Report tab exposes both as buttons. This matters because
+SuperDocs Files are scoped to the API key's own account — the agent account
+the system authenticates as — so the app itself, not the SuperDocs web UI,
+is where a human finds the artifact. Clicking a row in the Documents tab
+opens the exact ingested text of that source, which is the text every
+citation and character anchor points into.
+
 ### Tests — no live key required
 
 ```bash

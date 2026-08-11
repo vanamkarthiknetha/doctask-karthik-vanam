@@ -216,3 +216,52 @@ Format: id · decision/assumption · why · how to revisit.
   prompts unused). MUST rehearse one full live run on the demo corpus
   before the call: this prompt path is live-only and was previously
   live-verified only with the Meridian wording.
+
+- **P25 - Lifecycle operations, and the grounding invariant they exposed
+  (2026-08-11).** Added document removal, pile deletion, deliverable
+  download, a UI-driven focused update, and watcher batching. Assumptions
+  logged, because each was a judgement call:
+
+  *Removal never rewrites the register.* Deleting a source could plausibly
+  recompose the deliverable immediately, but register content only ever
+  changes through an approved run - a delete button must not become a
+  backdoor around the human gate. Removal therefore makes the register
+  report itself STALE and leaves the text alone. Staleness is computed, not
+  stored: "does any claim cite a fact that no longer exists". A flag someone
+  must remember to set would rot; the invariant cannot.
+
+  *That decision surfaced a real defect in the byte-identity optimization.*
+  A document removed and re-imported yields identical section wording under
+  fresh fact ids, so compose's content-hash skip passed over the section and
+  its claims kept citing deleted facts - permanently ungrounded, on a
+  register whose every value was current. Fixed by driving recomposition off
+  broken grounding as well as changed content. Noted because it is the class
+  of bug this project is supposed to be about: the deliverable looked
+  perfect and its evidence links were dead.
+
+  *Retraction reverses supersession.* Deleting an amendment revives the term
+  it superseded rather than orphaning it. Found by the self-referencing
+  facts.superseded_by FK refusing the delete - the constraint was right and
+  the first implementation was wrong.
+
+  *Upload does not auto-run; a batch is one arrival.* In the UI, uploading N
+  files then running once beats N runs: batched uploads would collide on the
+  single-active-run guard, and every run costs model calls and creates
+  review work, so the human decides when to spend. In the watcher - where
+  nobody is present to decide - everything landing in one sweep became a
+  single update run instead of one run (and one gate) per file. Both paths
+  now agree: one arrival, one run. The brief's "each arrival produces a
+  focused update" is read as arrival-in-a-sweep, not file-by-file; impact is
+  still computed from the entities the batch mentions, so focus is unchanged.
+
+  *Piles create their watched folder.* The UI told users to drop files into
+  corpus/incoming/<pile-name>/ while nothing ever created it, so the
+  instruction was only true for folders made by hand. A name that could
+  never be paired with a folder (path separators, "." / "..") is skipped
+  rather than allowed to create a directory the watcher would misread.
+
+  *Exports carry the pile name.* SuperDocs Files are scoped to the API key's
+  account - the agent account, not the user's - so the rendered register was
+  never going to appear in the user's SuperDocs web UI. The app serves it
+  instead (list + download + inline PDF), named after the pile rather than
+  an internal id.

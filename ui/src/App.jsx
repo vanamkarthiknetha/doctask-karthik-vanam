@@ -174,6 +174,8 @@ const REASON_LABELS = {
   "full analysis": "a fresh analysis of every document",
   "update from new document(s)": "a newly arrived document",
   "overview counts refresh": "the summary counts changing",
+  "re-grounded after a source document was removed":
+    "a removed source — the wording may be unchanged, but its evidence is re-linked",
 };
 
 const STATUS_LABELS = {
@@ -763,14 +765,30 @@ export default function App() {
   }, [tab]);
 
   // ------------------------------------------------------------- actions
+  // Every piece of state below the pile selector belongs to ONE pile.
+  // Clearing it the instant the selection changes stops the previous pile's
+  // documents, report and costs from lingering on screen until the next
+  // poll returns — which read as the new pile already having content.
+  const resetPileState = () => {
+    setDocs([]); setRuns([]); setItems([]);
+    setRegister(null); setExportFiles([]); setAudit(null);
+    setFindings([]); setCosts(null); setRules(null);
+    setRunSel({ id: null, manual: false });
+    setRulesDirty(false); setDocView(null);
+  };
+
+  const selectPile = (id) => {
+    if (id === pileId) return;
+    setPileId(id);
+    resetPileState();
+  };
+
   const createPile = async () => {
     const name = newPile.trim();
     if (!name) return;
     try {
       const p = await api("/piles", { name });
-      setPileId(p.id);
-      setRunSel({ id: null, manual: false });
-      setRulesDirty(false);
+      selectPile(p.id);
       setNewPile(""); setCreating(false);
       setTab("documents");
       say(`Pile "${p.name}" ready — add documents next.`);
@@ -833,9 +851,7 @@ export default function App() {
           `${r.runs} run(s)${r.export_files_removed.length
             ? ` and ${r.export_files_removed.join(", ")}` : ""} removed.`);
       setPileId(null);
-      setRunSel({ id: null, manual: false });
-      setRulesDirty(false);
-      setDocView(null);
+      resetPileState();
       setTab("documents");
       refresh();
     } catch (e) { setError(String(e.message || e)); }
@@ -1125,12 +1141,7 @@ export default function App() {
             ) : (
               <>
                 <Select value={pileId ?? undefined}
-                        onValueChange={(v) => {
-                          setPileId(v);
-                          setRunSel({ id: null, manual: false });
-                          setRulesDirty(false);
-                          setDocView(null);
-                        }}>
+                        onValueChange={selectPile}>
                   <SelectTrigger size="sm"
                                  className="w-40 border-0 bg-transparent font-medium shadow-none hover:bg-accent/60">
                     <SelectValue placeholder="select a pile" />

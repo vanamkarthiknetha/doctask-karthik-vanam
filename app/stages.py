@@ -311,6 +311,21 @@ def reconcile_node(state: dict) -> dict:
     return {"impacted": impacted}
 
 
+def _ungrounded_sections(pile_id: str) -> list[dict]:
+    """Sections holding a claim that cites a fact which no longer exists —
+    the result of a source document being removed. Their TEXT may still be
+    correct (a removed-then-reimported document produces identical wording
+    under fresh fact ids), so the content-hash skip below would pass over
+    them forever and leave the register permanently ungrounded."""
+    return db.q(
+        "SELECT DISTINCT s.section_key, s.title FROM sections s "
+        "JOIN claims c ON c.section_id = s.id WHERE s.pile_id=%s AND EXISTS ("
+        "  SELECT 1 FROM unnest(c.fact_ids) fid "
+        "  WHERE NOT EXISTS (SELECT 1 FROM facts f WHERE f.id = fid))",
+        (pile_id,),
+    )
+
+
 def compose_node(state: dict) -> dict:
     """Recompose ONLY impacted entity sections (plus the overview). The
     pre-run hash of every section is captured here so commit can prove
@@ -323,19 +338,35 @@ def compose_node(state: dict) -> dict:
                db.q("SELECT * FROM sections WHERE pile_id=%s", (pile_id,))}
     pre_hashes = {k: s["content_hash"] for k, s in current.items()}
 
+    # A section can need recomposing for two different reasons: its content
+    # changed, or its evidence went away. The second kind is not implied by
+    # the impacted-entity set — the document that broke it may belong to a
+    # client this run never touched — so those entities join the list.
+    ungrounded = _ungrounded_sections(pile_id)
+    regroundable = {row["section_key"] for row in ungrounded}
+    todo = list(state.get("impacted") or [])
+    todo += [row["title"] for row in ungrounded if row["title"] not in todo]
+
     proposals = []
-    for entity in state.get("impacted") or []:
+    for entity in todo:
         if entity == "unknown":
             continue
         sec = register.compose_entity_section(entity, r["effective"], facts, docs)
         old = current.get(sec["section_key"])
-        if old and old["content_hash"] == sec["content_hash"]:
-            continue  # byte-identical — nothing to propose
+        regrounding = sec["section_key"] in regroundable
+        if old and old["content_hash"] == sec["content_hash"] and not regrounding:
+            continue  # byte-identical and still grounded — nothing to propose
         sec["old_hash"] = old["content_hash"] if old else None
         sec["reason"] = (
-            f"{'update from new document(s)' if state['kind'] == 'update' else 'full analysis'}"
+            "re-grounded after a source document was removed" if regrounding
+            else "update from new document(s)" if state["kind"] == "update"
+            else "full analysis"
         )
         proposals.append(sec)
+    if ungrounded:
+        event(run_id, "compose", "regrounding",
+              {"sections": sorted(regroundable),
+               "why": "claims cited facts whose source document was removed"})
 
     pile = db.one("SELECT name FROM piles WHERE id=%s", (pile_id,))
     entities = sorted({d["entity"] for d in docs.values()

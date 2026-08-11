@@ -92,6 +92,42 @@ def test_retracting_an_amendment_revives_the_term_it_superseded(pile):
         assert fmt(f["value"]) in markdown
 
 
+def test_reimporting_a_removed_document_clears_staleness(pile):
+    """Regression: removing a document and adding it back produces IDENTICAL
+    section wording under fresh fact ids. The content-hash skip in compose
+    therefore passed over the section, leaving its claims pointing at deleted
+    facts forever — the register stayed permanently ungrounded even though
+    every value in it was current. Recomposition is now driven by broken
+    grounding as well as by changed content."""
+    seed_documents(pile["id"], SEED)
+    full_run_approved(pile["id"])
+    target = next(d for d in service.list_documents(pile["id"])
+                  if db.one("SELECT count(*) AS n FROM facts WHERE doc_id=%s",
+                            (d["id"],))["n"] > 0)
+    # Client sections only: the overview carries review-queue counters that
+    # legitimately move between runs, so it is not part of this guarantee.
+    def client_hashes():
+        return {s["section_key"]: s["content_hash"]
+                for s in service.get_register(pile["id"])["sections"]
+                if s["section_key"] != "overview"}
+
+    before = client_hashes()
+
+    path = SEED / target["filename"]
+    service.delete_document(target["id"])
+    assert service.get_register(pile["id"])["stale"] is True
+
+    service.add_document_bytes(pile["id"], target["filename"], path.read_bytes())
+    full_run_approved(pile["id"])
+
+    reg = service.get_register(pile["id"])
+    assert reg["stale"] is False, "re-import must re-ground the register"
+    assert reg["stale_claims"] == 0
+    # The wording is genuinely unchanged — only the evidence links were
+    # rebound, so the byte-identity guarantee still holds.
+    assert client_hashes() == before
+
+
 def test_delete_refused_while_a_run_is_active(pile):
     seed_documents(pile["id"], SEED)
     run = service.start_run(pile["id"], kind="full", wait=True)

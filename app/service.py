@@ -2,13 +2,16 @@
 (app/mcp_server.py) are thin wrappers over these functions — approval itself
 is an operation here, not a UI feature.
 """
+import shutil
 import threading
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 import psycopg
 
 from . import config, db, graph, ingest
+from .register import export_stem
 from .rules_engine import load_playbook, parse_playbook_yaml
 
 
@@ -176,10 +179,110 @@ def load_sample_set(pile_id: str, set_name: str) -> list[dict]:
     return out
 
 
+def _export_candidates(pile: dict, fmt: str) -> list[Path]:
+    """Where this pile's rendered register may live on disk: the pile-name
+    file first, then the legacy id-prefixed name from before the rename."""
+    out = Path(config.EXPORT_DIR)
+    return [out / f"register-{export_stem(pile['name'])}.{fmt}",
+            out / f"register-{pile['id'][:8]}.{fmt}"]
+
+
+def list_exports(pile_id: str) -> list[dict]:
+    """The rendered .docx/.pdf register files available for this pile."""
+    pile = get_pile(pile_id)
+    found = []
+    for fmt in ("docx", "pdf"):
+        for path in _export_candidates(pile, fmt):
+            if path.is_file():
+                st = path.stat()
+                found.append({
+                    "format": fmt, "filename": path.name, "bytes": st.st_size,
+                    "modified": datetime.fromtimestamp(
+                        st.st_mtime, tz=timezone.utc).isoformat(),
+                })
+                break
+    return found
+
+
+def export_path(pile_id: str, fmt: str) -> Path:
+    if fmt not in ("docx", "pdf"):
+        raise ServiceError(404, f"unknown export format: {fmt}")
+    pile = get_pile(pile_id)
+    for path in _export_candidates(pile, fmt):
+        if path.is_file():
+            return path
+    raise ServiceError(
+        404, f"no {fmt} export rendered yet for this pile — complete a run "
+        "with a SuperDocs key configured")
+
+
+def delete_pile(pile_id: str) -> dict:
+    """Erase a pile completely: every database row (documents, facts, runs,
+    sections, findings, pending items, costs, graph checkpoints) plus the
+    exported .docx/.pdf files and the pile's watched folder. Refused while a
+    run is actively executing; a run parked at the review gate is fine —
+    deleting the pile is how you abandon it."""
+    pile = get_pile(pile_id)
+    busy = db.one(
+        "SELECT id, status FROM runs WHERE pile_id=%s "
+        "AND status IN ('running','committing')", (pile_id,),
+    )
+    if busy:
+        raise ServiceError(
+            409, f"run {busy['id']} is {busy['status']}; wait for it to "
+            "finish before deleting the pile")
+    n_docs = db.one("SELECT count(*) AS n FROM documents WHERE pile_id=%s",
+                    (pile_id,))["n"]
+    threads = [r["thread_id"] for r in
+               db.q("SELECT thread_id FROM runs WHERE pile_id=%s", (pile_id,))]
+    # LangGraph checkpoint tables exist only once a first run has executed.
+    if threads:
+        for table in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
+            try:
+                db.q(f"DELETE FROM {table} WHERE thread_id = ANY(%s)",  # noqa: S608 — fixed table names
+                     (threads,))
+            except psycopg.errors.UndefinedTable:
+                pass
+    db.q("DELETE FROM stage_events WHERE run_id IN "
+         "(SELECT id FROM runs WHERE pile_id=%s)", (pile_id,))
+    db.q("DELETE FROM cost_ledger WHERE pile_id=%s", (pile_id,))
+    db.q("DELETE FROM piles WHERE id=%s", (pile_id,))  # cascades the rest
+
+    removed = []
+    for fmt in ("docx", "pdf"):
+        for path in _export_candidates(pile, fmt):
+            if path.is_file():
+                path.unlink(missing_ok=True)
+                removed.append(path.name)
+    # Clear the watched folder too — leftover files there would make the
+    # watcher quietly recreate the pile on its next sweep.
+    watch = Path(config.WATCH_DIR) / pile["name"]
+    watch_removed = watch.is_dir()
+    if watch_removed:
+        shutil.rmtree(watch, ignore_errors=True)
+    return {"deleted": pile["name"], "documents": n_docs,
+            "runs": len(threads), "export_files_removed": removed,
+            "watch_folder_removed": watch_removed}
+
+
 def list_documents(pile_id: str) -> list[dict]:
     return [_doc_out(d) for d in
             db.q("SELECT * FROM documents WHERE pile_id=%s ORDER BY added_at",
                  (pile_id,))]
+
+
+def get_document(doc_id: str) -> dict:
+    """One imported document with the raw text the pipeline actually read —
+    the text every fact quote and character anchor points into."""
+    d = db.one("SELECT * FROM documents WHERE id=%s", (doc_id,))
+    if not d:
+        raise ServiceError(404, "document not found")
+    return _doc_out(d) | {
+        "raw_text": d["raw_text"],
+        "doc_date": d["doc_date"].isoformat() if d["doc_date"] else None,
+        "added_at": d["added_at"].isoformat(),
+        "class_confidence": d["class_confidence"],
+    }
 
 
 ACTIVE_STATUSES = ("running", "awaiting_review", "committing")

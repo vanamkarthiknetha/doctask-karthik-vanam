@@ -85,6 +85,13 @@ def list_piles():
     return service.list_piles()
 
 
+@app.delete("/piles/{pile_id}")
+def delete_pile(pile_id: str):
+    """Erase the pile and everything it owns: all database rows, the
+    exported .docx/.pdf register files, and its watched folder."""
+    return _wrap(service.delete_pile, pile_id)
+
+
 @app.get("/piles/{pile_id}/documents")
 def list_documents(pile_id: str):
     return _wrap(service.list_documents, pile_id)
@@ -94,6 +101,12 @@ def list_documents(pile_id: str):
 async def upload_document(pile_id: str, file: UploadFile):
     data = await file.read()
     return _wrap(service.add_document_bytes, pile_id, file.filename, data)
+
+
+@app.get("/documents/{doc_id}")
+def get_document(doc_id: str):
+    """One imported document, including the raw text the pipeline read."""
+    return _wrap(service.get_document, doc_id)
 
 
 @app.get("/piles/{pile_id}/rules")
@@ -154,6 +167,22 @@ def resume(run_id: str, wait: bool = False):
 @app.get("/piles/{pile_id}/register")
 def get_register(pile_id: str):
     return _wrap(service.get_register, pile_id)
+
+
+@app.get("/piles/{pile_id}/exports")
+def list_exports(pile_id: str):
+    """Rendered register files (.docx/.pdf) available for download."""
+    return _wrap(service.list_exports, pile_id)
+
+
+@app.get("/piles/{pile_id}/exports/{fmt}")
+def download_export(pile_id: str, fmt: str, inline: bool = False):
+    """Download a rendered register file; ?inline=1 opens it in the browser
+    (useful for the PDF) instead of forcing a download."""
+    path = _wrap(service.export_path, pile_id, fmt)
+    return FileResponse(
+        str(path), filename=path.name,
+        content_disposition_type="inline" if inline else "attachment")
 
 
 @app.get("/piles/{pile_id}/audit")

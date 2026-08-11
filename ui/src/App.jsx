@@ -3,9 +3,9 @@ import * as yaml from "js-yaml";
 import { toast } from "sonner";
 import {
   Blocks, Check, CheckCheck, CircleAlert, CircleCheckBig, CirclePause, CloudUpload,
-  Copy, FileCode2, FilePen, FileSearch, Fingerprint, GitCompare, Info, PenLine,
-  Play, Plus, Printer, RotateCcw, Save, ScanText, SearchCheck, Tags, TriangleAlert,
-  Upload, X,
+  Copy, FileCode2, FileDown, FilePen, FileSearch, Fingerprint, GitCompare, Info,
+  PenLine, Play, Plus, Printer, RotateCcw, Save, ScanText, SearchCheck, Tags,
+  Trash2, TriangleAlert, Upload, X,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -335,14 +335,14 @@ const CHIP_TONES = {
   idle: "bg-muted text-muted-foreground",
 };
 
-function StatusChip({ status }) {
+function StatusChip({ status, className }) {
   const tone = { running: "live", committing: "live", awaiting_review: "warn",
                  completed: "ok", failed: "bad" }[status] || "idle";
   const pulse = tone === "live" || tone === "warn";
   return (
     <span className={cn(
       "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold",
-      CHIP_TONES[tone])}>
+      CHIP_TONES[tone], className)}>
       <i className={cn("size-2 rounded-full bg-current", pulse && "pulse-dot")} />
       {STATUS_LABELS[status] || status}
     </span>
@@ -667,6 +667,7 @@ export default function App() {
   const [runSel, setRunSel] = useState({ id: null, manual: false });
   const [items, setItems] = useState([]);
   const [register, setRegister] = useState(null);
+  const [exportFiles, setExportFiles] = useState([]);
   const [audit, setAudit] = useState(null);
   const [findings, setFindings] = useState([]);
   const [costs, setCosts] = useState(null);
@@ -689,6 +690,7 @@ export default function App() {
   const [newPile, setNewPile] = useState("");
   const [creating, setCreating] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [docView, setDocView] = useState(null); // {id, text|null} — expanded document row
   const prevStatus = useRef({});
   const fileInput = useRef(null);
 
@@ -729,13 +731,14 @@ export default function App() {
       } else {
         setItems([]);
       }
-      const [reg, aud, fnd, cst, rul] = await Promise.all([
-        api(`/piles/${pid}/register`), api(`/piles/${pid}/audit`),
+      const [reg, exp, aud, fnd, cst, rul] = await Promise.all([
+        api(`/piles/${pid}/register`), api(`/piles/${pid}/exports`),
+        api(`/piles/${pid}/audit`),
         api(`/piles/${pid}/findings`), api(`/piles/${pid}/costs`),
         api(`/piles/${pid}/rules`),
       ]);
-      setRegister(reg); setAudit(aud); setFindings(fnd); setCosts(cst);
-      setRules(rul);
+      setRegister(reg); setExportFiles(exp); setAudit(aud); setFindings(fnd);
+      setCosts(cst); setRules(rul);
       if (!rulesDirty) {
         setRulesDraft(rul.rules_yaml);
         try {
@@ -791,8 +794,33 @@ export default function App() {
     }
     setBusy(false);
     if (fails.length) setError(`Some uploads were refused — ${fails.join("; ")}`);
-    say(`${ok} document(s) added${dup ? `, ${dup} duplicate(s) skipped` : ""}.`);
+    if (ok || dup) say(`${ok} document(s) added${dup ? `, ${dup} duplicate(s) skipped` : ""}.`);
     refresh();
+  };
+
+  const deletePile = async () => {
+    const p = (piles || []).find((x) => x.id === pileId);
+    if (!p) return;
+    const sure = window.confirm(
+      `Delete pile "${p.name}" and ALL of its data?\n\n` +
+      "This removes its documents, runs, report, findings, cost history, " +
+      "the exported .docx/.pdf files, and the watched folder " +
+      `corpus/incoming/${p.name}/.\n\nThis cannot be undone.`);
+    if (!sure) return;
+    setBusy(true);
+    try {
+      const r = await api(`/piles/${p.id}`, undefined, "DELETE");
+      say(`Pile "${r.deleted}" deleted — ${r.documents} document(s), ` +
+          `${r.runs} run(s)${r.export_files_removed.length
+            ? ` and ${r.export_files_removed.join(", ")}` : ""} removed.`);
+      setPileId(null);
+      setRunSel({ id: null, manual: false });
+      setRulesDirty(false);
+      setDocView(null);
+      setTab("documents");
+      refresh();
+    } catch (e) { setError(String(e.message || e)); }
+    setBusy(false);
   };
 
   const loadSamples = async (setName) => {
@@ -903,6 +931,22 @@ export default function App() {
     }
   };
 
+  const toggleDocView = async (d) => {
+    if (docView?.id === d.id) { setDocView(null); return; }
+    setDocView({ id: d.id, text: null });
+    try {
+      const full = await api(`/documents/${d.id}`);
+      setDocView({ id: d.id, text: full.raw_text });
+    } catch (e) { setError(String(e.message || e)); setDocView(null); }
+  };
+
+  useEffect(() => {
+    if (!docView) return;
+    const onKey = (e) => e.key === "Escape" && setDocView(null);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [docView]);
+
   const copyRegister = async () => {
     try {
       await navigator.clipboard.writeText(register.markdown);
@@ -917,10 +961,35 @@ export default function App() {
   const activeRun = runs.find((r) =>
     ["running", "awaiting_review", "committing"].includes(r.status));
 
-  const onDrop = (e) => {
-    e.preventDefault(); setDragOver(false);
-    uploadFiles([...e.dataTransfer.files]);
-  };
+  // Files can be dropped anywhere in the window — the control bar, a table,
+  // any tab — not only on the dashed zone. Without window-level handlers a
+  // drop that misses the zone makes the browser NAVIGATE to the first file,
+  // which looks like the app silently ignoring a multi-file drop.
+  const uploadRef = useRef(null);
+  uploadRef.current = uploadFiles;
+  useEffect(() => {
+    let depth = 0; // dragenter/dragleave fire per child element — count them
+    const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
+    const enter = (e) => { if (hasFiles(e)) { depth++; setDragOver(true); } };
+    const leave = (e) => { if (hasFiles(e) && --depth <= 0) { depth = 0; setDragOver(false); } };
+    const over = (e) => { if (hasFiles(e)) e.preventDefault(); };
+    const drop = (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth = 0; setDragOver(false);
+      uploadRef.current([...e.dataTransfer.files]);
+    };
+    window.addEventListener("dragenter", enter);
+    window.addEventListener("dragleave", leave);
+    window.addEventListener("dragover", over);
+    window.addEventListener("drop", drop);
+    return () => {
+      window.removeEventListener("dragenter", enter);
+      window.removeEventListener("dragleave", leave);
+      window.removeEventListener("dragover", over);
+      window.removeEventListener("drop", drop);
+    };
+  }, []);
 
   // ------------------------------------------------------------- render
   if (piles && piles.length === 0) {
@@ -950,89 +1019,153 @@ export default function App() {
     <div className="mx-auto max-w-[1180px] px-4 pb-16">
       <Header health={health} />
 
-      {/* ------------------------------------------------ control bar */}
-      <Card className="flex-row flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3">
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] font-bold tracking-wider text-muted-foreground uppercase"
-                title="A pile is an isolated set of related documents.">
-            Pile
+      {dragOver && (
+        <div className="pointer-events-none fixed inset-0 z-50 flex items-start justify-center rounded-lg border-4 border-dashed border-primary/70 bg-primary/5 pt-24">
+          <span className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-lg">
+            <CloudUpload className="mr-1.5 inline size-4 align-[-2px]" />
+            Drop to add file(s) to {pile ? `"${pile.name}"` : "this pile"}
           </span>
-          {creating ? (
-            <span className="flex items-center gap-1.5">
-              <Input autoFocus className="h-8 w-44" placeholder="new pile name" value={newPile}
-                     onChange={(e) => setNewPile(e.target.value)}
-                     onKeyDown={(e) => e.key === "Enter" && createPile()} />
-              <Button size="sm" onClick={createPile}>Create</Button>
-              <Button size="icon-sm" variant="ghost" onClick={() => setCreating(false)}>
-                <X />
-              </Button>
+        </div>
+      )}
+
+      {/* ------------------------------------- imported-document viewer */}
+      {docView && (() => {
+        const d = docs.find((x) => x.id === docView.id);
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px]"
+               onClick={() => setDocView(null)}>
+            <div className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border bg-card shadow-2xl"
+                 onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center gap-3 border-b bg-muted/40 px-5 py-3.5">
+                <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+                  <FileSearch className="size-4.5" />
+                </div>
+                <div className="min-w-0 flex-1 leading-snug">
+                  <b className="block truncate text-[15px]">{d?.filename}</b>
+                  <span className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                    <span className="font-mono uppercase">{d?.format}</span>
+                    {d?.doc_class && <>· {d.doc_class}</>}
+                    {d?.entity && <>· {d.entity}</>}
+                    {d && <>· <StatusText status={d.status} /></>}
+                  </span>
+                </div>
+                {d?.injection_flagged && (
+                  <Badge variant="destructive" className="shrink-0">
+                    <TriangleAlert /> injection flagged
+                  </Badge>
+                )}
+                <Button size="icon-sm" variant="ghost" className="shrink-0"
+                        title="Close (Esc)" onClick={() => setDocView(null)}>
+                  <X />
+                </Button>
+              </div>
+              <pre className="flex-1 overflow-auto p-5 font-mono text-xs leading-relaxed whitespace-pre-wrap">
+                {docView.text ?? "Loading…"}
+              </pre>
+              <div className="border-t bg-muted/40 px-5 py-2.5 text-xs text-muted-foreground">
+                This is the exact text the analyst read — every citation and character
+                range in the report points into this content.
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ------------------------------------------------ control bar */}
+      <Card className="px-3 py-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* pile segment */}
+          <div className="flex h-10 shrink-0 items-center gap-0.5 rounded-lg border bg-muted/40 pr-1 pl-3"
+               title="A pile is an isolated set of related documents.">
+            <span className="mr-1 text-[11px] font-bold tracking-wider text-muted-foreground uppercase">
+              Pile
             </span>
-          ) : (
-            <>
-              <Select value={pileId ?? undefined}
-                      onValueChange={(v) => {
-                        setPileId(v);
-                        setRunSel({ id: null, manual: false });
-                        setRulesDirty(false);
-                      }}>
-                <SelectTrigger size="sm" className="w-44">
-                  <SelectValue placeholder="select a pile" />
+            {creating ? (
+              <span className="flex items-center gap-1.5 py-1">
+                <Input autoFocus className="h-8 w-40 bg-card" placeholder="new pile name" value={newPile}
+                       onChange={(e) => setNewPile(e.target.value)}
+                       onKeyDown={(e) => e.key === "Enter" && createPile()} />
+                <Button size="sm" onClick={createPile}>Create</Button>
+                <Button size="icon-sm" variant="ghost" onClick={() => setCreating(false)}>
+                  <X />
+                </Button>
+              </span>
+            ) : (
+              <>
+                <Select value={pileId ?? undefined}
+                        onValueChange={(v) => {
+                          setPileId(v);
+                          setRunSel({ id: null, manual: false });
+                          setRulesDirty(false);
+                          setDocView(null);
+                        }}>
+                  <SelectTrigger size="sm"
+                                 className="w-40 border-0 bg-transparent font-medium shadow-none hover:bg-accent/60">
+                    <SelectValue placeholder="select a pile" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(piles || []).map((p) =>
+                      <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <div className="mx-1 h-5 w-px bg-border" />
+                <Button size="icon-sm" variant="ghost" title="Create a new pile"
+                        onClick={() => setCreating(true)}>
+                  <Plus />
+                </Button>
+                <Button size="icon-sm" variant="ghost" disabled={!pile || busy}
+                        title="Delete this pile — removes all of its data and the exported files"
+                        onClick={deletePile}>
+                  <Trash2 className="text-red-600" />
+                </Button>
+              </>
+            )}
+          </div>
+
+          {/* run segment — flexible, truncates instead of wrapping */}
+          <div className="flex h-10 min-w-40 flex-1 items-center gap-0.5 rounded-lg border bg-muted/40 pr-1.5 pl-3">
+            <span className="mr-1 text-[11px] font-bold tracking-wider text-muted-foreground uppercase">
+              Run
+            </span>
+            {runs.length ? (
+              <Select value={runSel.id ?? undefined}
+                      onValueChange={(v) => setRunSel({ id: v, manual: true })}>
+                <SelectTrigger size="sm"
+                               className="min-w-0 flex-1 justify-start border-0 bg-transparent shadow-none hover:bg-accent/60">
+                  <SelectValue placeholder="select a run" />
                 </SelectTrigger>
                 <SelectContent>
-                  {(piles || []).map((p) =>
-                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                  {[...runs].reverse().map((r) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {RUN_KIND_LABELS[r.kind] || r.kind} · {fmtDate(r.started_at)} · {RUN_STATUS_SHORT[r.status] || r.status}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
-              <Button size="sm" variant="outline" title="Create a new pile"
-                      onClick={() => setCreating(true)}>
-                <Plus /> New pile
-              </Button>
-            </>
-          )}
-        </div>
+            ) : (
+              <span className="flex-1 px-1 text-sm text-muted-foreground italic">
+                no runs yet
+              </span>
+            )}
+            {run && <StatusChip status={run.status} className="shrink-0" />}
+          </div>
 
-        <div className="flex flex-1 items-center justify-center gap-2">
-          <Button size="sm" variant="outline" disabled={busy}
-                  onClick={() => fileInput.current.click()}>
-            <Upload /> Upload documents
-          </Button>
-          <input ref={fileInput} type="file" multiple hidden
-                 accept=".md,.txt,.html,.docx,.pdf"
-                 onChange={(e) => { uploadFiles([...e.target.files]); e.target.value = ""; }} />
-          <Button size="sm" disabled={busy || !docs.length || !!activeRun}
-                  title={!docs.length ? "Add documents first"
-                        : activeRun ? "A run is already in progress" : ""}
-                  onClick={startRun}>
-            <Play /> Run analysis
-          </Button>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] font-bold tracking-wider text-muted-foreground uppercase">
-            Run
-          </span>
-          {runs.length ? (
-            <Select value={runSel.id ?? undefined}
-                    onValueChange={(v) => setRunSel({ id: v, manual: true })}>
-              <SelectTrigger size="sm" className="max-w-95">
-                <SelectValue placeholder="select a run" />
-              </SelectTrigger>
-              <SelectContent>
-                {[...runs].reverse().map((r) => (
-                  <SelectItem key={r.id} value={r.id}>
-                    {RUN_KIND_LABELS[r.kind] || r.kind} · {fmtDate(r.started_at)} · {RUN_STATUS_SHORT[r.status] || r.status}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : (
-            <Select disabled>
-              <SelectTrigger size="sm">
-                <SelectValue placeholder="no runs yet" />
-              </SelectTrigger>
-            </Select>
-          )}
-          {run && <StatusChip status={run.status} />}
+          {/* actions — always at the end of the bar */}
+          <div className="flex shrink-0 items-center gap-2">
+            <Button size="sm" variant="outline" className="h-10" disabled={busy}
+                    onClick={() => fileInput.current.click()}>
+              <Upload /> Upload documents
+            </Button>
+            <input ref={fileInput} type="file" multiple hidden
+                   accept=".md,.txt,.html,.docx,.pdf"
+                   onChange={(e) => { uploadFiles([...e.target.files]); e.target.value = ""; }} />
+            <Button size="sm" className="h-10" disabled={busy || !docs.length || !!activeRun}
+                    title={!docs.length ? "Add documents first"
+                          : activeRun ? "A run is already in progress" : ""}
+                    onClick={startRun}>
+              <Play /> Run analysis
+            </Button>
+          </div>
         </div>
       </Card>
 
@@ -1075,12 +1208,9 @@ export default function App() {
                  "my-3 cursor-pointer rounded-xl border-2 border-dashed bg-card p-7 text-center transition-colors",
                  dragOver ? "border-primary bg-accent"
                           : "border-input hover:border-primary/60 hover:bg-accent/50")}
-               onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-               onDragLeave={() => setDragOver(false)}
-               onDrop={onDrop}
                onClick={() => fileInput.current.click()}>
             <CloudUpload className="mx-auto mb-2 size-8 text-muted-foreground" />
-            <b>Drop files here</b> or click to browse
+            <b>Drop files anywhere</b> or click to browse
             <div className="mt-1 text-sm text-muted-foreground">md · txt · html · docx · pdf</div>
           </div>
           {docs.length === 0 && sampleSets.length > 0 && (
@@ -1115,8 +1245,15 @@ export default function App() {
               </TableHeader>
               <TableBody>
                 {docs.map((d) => (
-                  <TableRow key={d.id}>
-                    <TableCell className="font-medium">{d.filename}</TableCell>
+                  <TableRow key={d.id} className="cursor-pointer"
+                            title="Click to view the imported content"
+                            onClick={() => toggleDocView(d)}>
+                    <TableCell className="font-medium">
+                      <span className="inline-flex items-center gap-1.5">
+                        <FileSearch className="size-3.5 text-muted-foreground" />
+                        {d.filename}
+                      </span>
+                    </TableCell>
                     <TableCell>
                       <Badge variant="outline" className="px-1.5 font-mono text-[10px] uppercase">
                         {d.format}
@@ -1357,11 +1494,30 @@ export default function App() {
       {tab === "register" && register && (
         <section>
           {register.sections.length > 0 && (
-            <div className="my-3 flex flex-wrap items-center gap-3">
-              <span className="text-sm text-muted-foreground">
+            <div className="my-3 flex flex-wrap items-center gap-2">
+              <span className="mr-auto text-sm text-muted-foreground">
                 Every value below cites its source — click a card to see the exact wording.
               </span>
-              <Button size="sm" variant="outline" className="ml-auto" onClick={copyRegister}>
+              {exportFiles.map((f) => (
+                <React.Fragment key={f.format}>
+                  {f.format === "pdf" && (
+                    <Button size="sm" variant="outline" asChild
+                            title="Open the rendered PDF in a new tab">
+                      <a href={`/piles/${pileId}/exports/pdf?inline=1`}
+                         target="_blank" rel="noreferrer">
+                        <FileSearch /> View PDF
+                      </a>
+                    </Button>
+                  )}
+                  <Button size="sm" variant="outline" asChild
+                          title={`Rendered by SuperDocs · ${fmtDate(f.modified)}`}>
+                    <a href={`/piles/${pileId}/exports/${f.format}`} download>
+                      <FileDown /> {f.filename}
+                    </a>
+                  </Button>
+                </React.Fragment>
+              ))}
+              <Button size="sm" variant="outline" onClick={copyRegister}>
                 <Copy /> Copy as markdown
               </Button>
             </div>

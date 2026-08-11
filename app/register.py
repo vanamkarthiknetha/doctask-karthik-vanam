@@ -7,6 +7,7 @@ Sections are content-hashed. An update run recomposes only impacted entities;
 every other section's hash is untouched, which is the byte-identity proof.
 """
 import hashlib
+import re
 from datetime import date
 
 LABELS = {
@@ -21,6 +22,13 @@ KEY_ORDER = list(LABELS)
 
 def _hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def export_stem(pile_name: str) -> str:
+    """Filesystem-safe stem for deliverable filenames, derived from the pile's
+    human name — exports read register-<pile-name>.docx, not an opaque id."""
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "-", pile_name).strip("-.")
+    return stem[:60] or "pile"
 
 
 def _cite(fact: dict, docs: dict[str, dict]) -> str:

@@ -190,6 +190,8 @@ def render_node(state: dict) -> dict:
         if not sections:
             event(run_id, "render", "skipped-empty-register", {})
             return {}
+        pile = db.one("SELECT name FROM piles WHERE id=%s", (pile_id,))
+        stem = register.export_stem(pile["name"]) if pile else pile_id[:8]
         text = register.register_markdown(sections)
         body = md.markdown(text, extensions=["tables"])
         # The exporter honors INLINE styles only (a <style> block is ignored,
@@ -208,16 +210,20 @@ def render_node(state: dict) -> dict:
                      'padding:6px 10px;">')
         )
         html = "<html><body>" + body + "</body></html>"
-        session = f"doctask-{pile_id[:8]}-{_t.strftime('%Y%m%d-%H%M%S')}"
+        session = f"doctask-{stem}-{_t.strftime('%Y%m%d-%H%M%S')}"
         t0 = _t.monotonic()
-        superdocs_client.upload_html(session, "register.html", html)
+        # The filename is what SuperDocs shows in its Files view (scoped to
+        # the API key's own account), so carry the pile name, not a hash.
+        superdocs_client.upload_html(session, f"register-{stem}.html", html)
         out_dir = Path(config.EXPORT_DIR)
         out_dir.mkdir(parents=True, exist_ok=True)
         written = []
         for fmt in ("docx", "pdf"):
             blob = superdocs_client.export(session, fmt)
-            path = out_dir / f"register-{pile_id[:8]}.{fmt}"
+            path = out_dir / f"register-{stem}.{fmt}"
             path.write_bytes(blob)
+            # a pre-rename export of the same pile is superseded by this one
+            (out_dir / f"register-{pile_id[:8]}.{fmt}").unlink(missing_ok=True)
             written.append(str(path))
         db.q(
             "INSERT INTO cost_ledger (run_id, pile_id, stage, provider, "

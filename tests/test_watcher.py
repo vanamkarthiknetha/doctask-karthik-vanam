@@ -32,6 +32,23 @@ def test_sweep_ingests_runs_and_archives(tmp_path, monkeypatch, pile):
     assert watcher.sweep_once() == []
 
 
+def test_creating_a_pile_creates_its_watched_folder(tmp_path, monkeypatch):
+    """The UI tells the user to drop files into corpus/incoming/<pile>/, so
+    that folder must exist from the moment the pile does — no convention to
+    guess, no folder to create by hand."""
+    monkeypatch.setattr(config, "WATCH_DIR", str(tmp_path / "incoming"))
+    name = f"test-watch-{uuid.uuid4().hex[:8]}"
+    p = service.create_pile(name)
+    try:
+        assert (tmp_path / "incoming" / name).is_dir()
+        # A name that could never be paired with a folder is skipped, not
+        # allowed to create a nested directory the watcher would misread.
+        assert service.watch_dir_for("a/b") is None
+        assert service.watch_dir_for("..") is None
+    finally:
+        db.q("DELETE FROM piles WHERE id=%s", (p["id"],))
+
+
 def test_batch_arrival_is_a_single_update_run(tmp_path, monkeypatch):
     """Five files landing together are ONE arrival: one update run covering
     all of them, so a bulk drop costs one trip through the human gate rather

@@ -17,6 +17,7 @@ from .llm.boundary import get_provider
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_schema()
+    service.ensure_all_watch_dirs()
     service.continue_incomplete_runs()
     stop = watcher.start_watcher()
     yield

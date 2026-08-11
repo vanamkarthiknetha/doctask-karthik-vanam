@@ -4,6 +4,7 @@ Postgres from docker-compose is required (docker compose up -d db).
 """
 import os
 import sys
+import tempfile
 import uuid
 from pathlib import Path
 
@@ -13,6 +14,10 @@ sys.path.insert(0, str(REPO))
 # Environment must be pinned BEFORE app modules are imported.
 os.environ["LLM_PROVIDER"] = "mock"
 os.environ["DOCTASK_RENDER"] = "0"
+# Creating a pile now creates its watched folder; send the throwaway piles
+# these tests make to a temp directory instead of the repo's corpus/incoming.
+os.environ.setdefault(
+    "WATCH_DIR", tempfile.mkdtemp(prefix="doctask-test-watch-"))
 os.environ.setdefault(
     "DATABASE_URL", "postgresql://doctask:doctask@localhost:5433/doctask"
 )

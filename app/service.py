@@ -21,12 +21,46 @@ class ServiceError(Exception):
         self.status = status
 
 
+def watch_dir_for(pile_name: str) -> Path | None:
+    """This pile's watched folder, or None if its name cannot be one (a name
+    containing a path separator could never be matched by the watcher, which
+    pairs a folder with a pile by exact name)."""
+    if not pile_name or pile_name in (".", "..") \
+            or any(sep in pile_name for sep in ("/", "\\")):
+        return None
+    return Path(config.WATCH_DIR) / pile_name
+
+
+def ensure_watch_dir(pile_name: str) -> None:
+    """Give a pile its watched folder up front. The UI tells the user to drop
+    files into corpus/incoming/<pile-name>/, so that folder has to exist
+    without them having to guess the convention and create it by hand."""
+    target = watch_dir_for(pile_name)
+    if target is None:
+        return
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass  # a read-only or missing mount must never fail pile creation
+
+
 def create_pile(name: str) -> dict:
     existing = db.one("SELECT * FROM piles WHERE name=%s", (name,))
     if existing:
+        ensure_watch_dir(name)  # self-heals a folder that was removed
         return _pile_out(existing)
     row = db.one("INSERT INTO piles (name) VALUES (%s) RETURNING *", (name,))
+    ensure_watch_dir(name)
     return _pile_out(row)
+
+
+def ensure_all_watch_dirs() -> list[str]:
+    """Called at startup so piles created before this existed — or whose
+    folder was deleted — get theirs back."""
+    names = [p["name"] for p in db.q("SELECT name FROM piles")]
+    for name in names:
+        ensure_watch_dir(name)
+    return names
 
 
 def list_piles() -> list[dict]:
@@ -256,8 +290,8 @@ def delete_pile(pile_id: str) -> dict:
                 removed.append(path.name)
     # Clear the watched folder too — leftover files there would make the
     # watcher quietly recreate the pile on its next sweep.
-    watch = Path(config.WATCH_DIR) / pile["name"]
-    watch_removed = watch.is_dir()
+    watch = watch_dir_for(pile["name"])
+    watch_removed = watch is not None and watch.is_dir()
     if watch_removed:
         shutil.rmtree(watch, ignore_errors=True)
     return {"deleted": pile["name"], "documents": n_docs,

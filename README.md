@@ -327,6 +327,21 @@ anchors — the corpus cannot drift from the fixtures.
   prove something the hashes already prove. Two export-fidelity rough edges
   found on the way (inline-styles-only; `background-color` longhand) are
   handled in the renderer and reported in the parent project's bug log.
+- **The overview reports what the analysis FOUND, not the review queue.**
+  It previously printed "Open conflicts" and "Findings pending review",
+  which was wrong twice over. The rules that raise findings run in
+  `examine`, *after* `compose` built the overview — so a run that raised
+  three findings printed `0`, a false statement in a deliverable whose whole
+  premise is that it states nothing it cannot support. And a pure queue
+  count is structurally zero in every *exported* document, because export
+  only happens once the gate has been drained: a number that can only ever
+  read zero tells a reader nothing. The overview is now composed after
+  `examine` and reports totals with the outstanding count beside them
+  (`Disagreements between documents: 1 (0 still open)`). The outstanding
+  figure is *as of that analysis* — the overview is composed before the
+  gate, since composing it afterwards would put text into the register that
+  nobody approved — so it reads non-zero in the run that raises the items
+  and settles to zero on the next one (`tests/test_overview_counts.py`).
 - **The review UI renders register sections as light headings and tables,
   with the raw markdown one disclosure away** ("view raw text") — reviewers
   diff exact content; the styled artifact is the exported docx/pdf.

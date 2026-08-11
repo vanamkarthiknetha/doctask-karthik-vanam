@@ -368,25 +368,46 @@ def compose_node(state: dict) -> dict:
               {"sections": sorted(regroundable),
                "why": "claims cited facts whose source document was removed"})
 
-    pile = db.one("SELECT name FROM piles WHERE id=%s", (pile_id,))
-    entities = sorted({d["entity"] for d in docs.values()
-                       if d["entity"] and d["entity"] != "unknown"})
-    n_open = db.one("SELECT count(*) AS n FROM conflicts WHERE pile_id=%s "
-                    "AND status='open'", (pile_id,))["n"]
-    n_pending = db.one("SELECT count(*) AS n FROM findings WHERE pile_id=%s "
-                       "AND status='pending'", (pile_id,))["n"]
-    ov = register.compose_overview(pile["name"], entities, len(docs), n_open, n_pending)
-    old_ov = current.get("overview")
-    if not old_ov or old_ov["content_hash"] != ov["content_hash"]:
-        ov["old_hash"] = old_ov["content_hash"] if old_ov else None
-        ov["reason"] = "overview counts refresh"
-        proposals.append(ov)
-
+    # The overview is NOT built here. It counts conflicts and findings, and
+    # the rules that raise findings do not run until examine — composing it
+    # now would print a count that this very run is about to invalidate.
     event(run_id, "compose", "proposed",
           {"changed_sections": [p["section_key"] for p in proposals],
            "unchanged_sections": [k for k in pre_hashes
                                   if k not in {p["section_key"] for p in proposals}]})
     return {"proposals": proposals, "pre_hashes": pre_hashes}
+
+
+def _propose_overview(state: dict, proposals: list[dict]) -> list[dict]:
+    """Compose the overview once every finding this run raises is recorded.
+    It reports what the analysis FOUND, with what is still outstanding beside
+    it: a pure review-queue count would read 0 in every exported document,
+    because export only happens after the queue is drained."""
+    run_id, pile_id = state["run_id"], state["pile_id"]
+    docs = _all_docs(pile_id)
+    pile = db.one("SELECT name FROM piles WHERE id=%s", (pile_id,))
+    entities = sorted({d["entity"] for d in docs.values()
+                       if d["entity"] and d["entity"] != "unknown"})
+    conflicts = db.one(
+        "SELECT count(*) AS total, count(*) FILTER (WHERE status='open') AS open "
+        "FROM conflicts WHERE pile_id=%s", (pile_id,))
+    findings = db.one(
+        "SELECT count(*) AS total, count(*) FILTER (WHERE status='pending') "
+        "AS pending FROM findings WHERE pile_id=%s", (pile_id,))
+    ov = register.compose_overview(
+        pile["name"], entities, len(docs),
+        conflicts["total"], conflicts["open"],
+        findings["total"], findings["pending"])
+    old = db.one("SELECT content_hash FROM sections WHERE pile_id=%s "
+                 "AND section_key='overview'", (pile_id,))
+    if old and old["content_hash"] == ov["content_hash"]:
+        return proposals
+    ov["old_hash"] = old["content_hash"] if old else None
+    ov["reason"] = "overview counts refresh"
+    event(run_id, "examine", "overview-composed",
+          {"disagreements": conflicts["total"], "still_open": conflicts["open"],
+           "issues": findings["total"], "awaiting_review": findings["pending"]})
+    return proposals + [ov]
 
 
 def examine_node(state: dict) -> dict:
@@ -421,4 +442,4 @@ def examine_node(state: dict) -> dict:
     event(run_id, "examine", "completed",
           {"new_findings": inserted, "rules_evaluated": len(report),
            "rules_source": rules_source})
-    return {}
+    return {"proposals": _propose_overview(state, state.get("proposals") or [])}

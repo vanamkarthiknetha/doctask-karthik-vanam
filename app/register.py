@@ -99,7 +99,13 @@ def compose_entity_section(entity: str, effective: dict, facts: list[dict],
 
 
 def compose_overview(pile_name: str, entities: list[str], n_docs: int,
-                     open_conflicts: int, pending_findings: int) -> dict:
+                     conflicts_found: int, conflicts_open: int,
+                     issues_raised: int, issues_pending: int) -> dict:
+    """The counts report what the analysis FOUND over this pile's life, with
+    what is still outstanding beside it. Reporting only the review queue
+    would print 0 in every exported document, since a register is exported
+    after its queue has been decided — a number structurally doomed to be
+    zero tells a reader nothing."""
     lines = [
         "# Vendor Obligations Register",
         "",
@@ -109,9 +115,11 @@ def compose_overview(pile_name: str, entities: list[str], n_docs: int,
         "",
         f"Source documents: {n_docs}",
         "",
-        f"Open conflicts: {open_conflicts}",
+        f"Disagreements between documents: {conflicts_found} "
+        f"({conflicts_open} still open)",
         "",
-        f"Findings pending review: {pending_findings}",
+        f"Issues raised against the rules: {issues_raised} "
+        f"({issues_pending} awaiting review)",
         "",
         "Every value below cites the exact place in a source document. "
         "A value with no citation cannot appear in this register.",
